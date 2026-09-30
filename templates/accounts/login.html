@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Sign in | Supply Chain Portal{% endblock %}
+{% block body_class %}login-page{% endblock %}
+{% block hero %}
+<section class="hero login-hero">
+  <video class="hero-media" autoplay muted loop playsinline preload="metadata" poster="{% static 'img/site/42-mld-7-1536x865.jpg' %}" aria-hidden="true">
+    <source src="https://vishwainfra.in/v/kollapur76mld.mp4#t=38" type="video/mp4">
+  </video>
+  <div class="login-wrap">
+    <div class="login-intro"><p class="eyebrow">VISHWA · OPERATIONS</p><h1>Supply chain,<br>in clear view.</h1><p>Supplier and subcontractor intelligence for project teams.</p></div>
+    <form class="login-form" method="post">
+      {% csrf_token %}<input type="hidden" name="next" value="{{ request.GET.next }}">
+      <p class="eyebrow">INTERNAL ACCESS</p><h2>Sign in</h2>
+      {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+      <label for="id_username">Username</label>{{ form.username }}{% for error in form.username.errors %}<small class="error">{{ error }}</small>{% endfor %}
+      <label for="id_password">Password</label>{{ form.password }}{% for error in form.password.errors %}<small class="error">{{ error }}</small>{% endfor %}
+      <button class="button primary full-width" type="submit">Continue</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Supply Chain Portal{% endblock %}</title>
+  <link rel="icon" href="{% static 'img/site/vishwa-site-logo.jpg' %}">
+  <link rel="stylesheet" href="{% static 'css/portal.css' %}">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <div class="contact-strip">
+    <span class="strip-label">VISHWA Infrastructures &amp; Services · Supply Chain Portal</span>
+    <span class="strip-contacts"><a href="tel:+914027763835">+91 40 2776 3835</a><a href="mailto:info@vishwainfra.in">info@vishwainfra.in</a></span>
+  </div>
+  <header class="topbar">
+    <a class="brand" href="{% url 'dashboard' %}"><picture><source media="(prefers-reduced-motion: reduce)" srcset="{% static 'img/site/vishwa-site-logo.jpg' %}"><img class="brand-logo" src="{% static 'img/site/vishwa-logo-animated.webp' %}" alt="VISHWA" width="64" height="64"></picture><span class="brand-text">Supply Chain<span class="brand-sub">Portal · Internal</span></span></a>
+    {% if request.user.is_authenticated %}
+    {% with current=request.resolver_match.url_name namespace=request.resolver_match.namespace %}
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="{% url 'dashboard' %}"{% if current == 'dashboard' %} class="active"{% endif %}>Overview</a>
+      <a href="{% url 'suppliers:list' %}"{% if namespace == 'suppliers' %} class="active"{% endif %}>Suppliers</a>
+      <a href="{% url 'subcontractors:list' %}"{% if namespace == 'subcontractors' %} class="active"{% endif %}>Labour &amp; Composite</a>
+      <a href="{% url 'search' %}"{% if current == 'search' %} class="active"{% endif %}>Search</a>
+      {% if request.user.is_superuser %}<a href="{% url 'admin_users' %}"{% if current == 'admin_users' %} class="active"{% endif %}>Users</a>{% endif %}
+    </nav>
+    {% endwith %}
+    <div class="user-nav"><span>{{ request.user.get_username }}</span><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="quiet-button" type="submit">Sign out</button></form></div>
+    {% endif %}
+  </header>
+  {% block hero %}{% endblock %}
+  <main class="page-shell">
+    {% if messages %}<div class="messages">{% for message in messages %}<p class="message {{ message.tags }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <section class="connect-band">
+    <p>Connect with our supply chain team</p>
+    <a href="tel:+914027763835">+91 40 2776 3835</a>
+    <a href="mailto:info@vishwainfra.in">info@vishwainfra.in</a>
+  </section>
+  <footer class="footer">
+    <div class="footer-grid">
+      <div><picture><source media="(prefers-reduced-motion: reduce)" srcset="{% static 'img/site/vishwa-site-logo.jpg' %}"><img class="footer-logo" src="{% static 'img/site/vishwa-logo-animated.webp' %}" alt="VISHWA" width="72" height="72"></picture><p class="footer-tag">Creating value since 1992</p></div>
+      <div><h3>Portal</h3>{% if request.user.is_authenticated %}<a href="{% url 'suppliers:list' %}">Suppliers</a><a href="{% url 'subcontractors:list' %}">Labour &amp; Composite subcontractors</a><a href="{% url 'search' %}">Search</a>{% else %}<a href="{% url 'login' %}">Sign in</a>{% endif %}</div>
+      <div><h3>Company</h3><a href="https://vishwainfra.in/" target="_blank" rel="noopener">vishwainfra.in</a><a href="https://vishwainfra.in/contact-us/" target="_blank" rel="noopener">Contact us</a></div>
+      <div><h3>Corporate and Regd. Office</h3><address>1-11-256/C/24, Plot No:24,<br>Gagan Vihar Colony, Begumpet,<br>Hyderabad, Telangana, India.</address><p>Ph: +91 40 27763835<br>info@vishwainfra.in</p></div>
+    </div>
+    <p class="footer-note">© VISHWA Infrastructures &amp; Services Pvt. Ltd. · Internal business data</p>
+  </footer>
+</body>
+</html>

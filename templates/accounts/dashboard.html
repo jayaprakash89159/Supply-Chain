@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Overview | Supply Chain Portal{% endblock %}
+{% block body_class %}has-hero{% endblock %}
+{% block hero %}
+<section class="hero">
+  <video class="hero-media" autoplay muted loop playsinline preload="metadata" poster="{% static 'img/site/42-mld-7-1536x865.jpg' %}" aria-hidden="true">
+    <source src="https://vishwainfra.in/v/kollapur76mld.mp4#t=38" type="video/mp4">
+  </video>
+  <div class="hero-inner">
+    <p class="eyebrow">VISHWA · SUPPLY NETWORK</p>
+    <h1>Supply chain, in clear view.</h1>
+    <p class="lede">Supplier and subcontractor records for water and wastewater infrastructure projects.</p>
+    <form class="hero-search" method="get" action="{% url 'search' %}" role="search"><label class="visually-hidden" for="hero-q">Search suppliers and subcontractors</label><input id="hero-q" type="search" name="q" placeholder="Search by mobile number, name, vendor code, GSTIN, city..." required><button class="button primary" type="submit">Search</button></form>
+    <p class="hero-hint">Searches suppliers and Labour &amp; Composite subcontractors together.</p>
+  </div>
+</section>
+<section class="service-cards" aria-label="Directories">
+  <a class="service-card dark" href="{% url 'suppliers:list' %}"><svg class="card-icon" viewBox="0 0 72 64" width="72" height="64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="14" width="38" height="30" rx="2"/><path d="M23 14v30M13 14v8h20v-8"/><path d="M42 24h13l9 11v9H42"/><path d="M47 24v11h17"/><circle cx="16" cy="48" r="6"/><circle cx="54" cy="48" r="6"/><path d="M22 48h26"/></svg><h2>Supplier directory</h2><p>Search vendors, materials, brands, locations and ratings.</p><span class="card-link">Open directory ›</span></a>
+  <a class="service-card light" href="{% url 'subcontractors:list' %}"><svg class="card-icon" viewBox="0 0 72 64" width="72" height="64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 30a17 17 0 0 1 34 0"/><path d="M14 30h44"/><path d="M36 13v9M30 15v7M42 15v7"/><path d="M24 30v3a12 12 0 0 0 24 0v-3"/><path d="M12 62v-3a12 11 0 0 1 12-11h24a12 11 0 0 1 12 11v3"/><path d="M30 48l6 8 6-8M36 56v6"/></svg><h2>Labour &amp; Composite</h2><p>Subcontractors with trades, labour strength, licences and project history.</p><span class="card-link">Open directory ›</span></a>
+  <a class="service-card dark" href="{% url 'search' %}"><svg class="card-icon" viewBox="0 0 72 64" width="72" height="64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="34" height="46" rx="3"/><path d="M13 14h20M13 22h14M13 30h10M13 38h8"/><circle cx="44" cy="38" r="12"/><path d="M38 38a6 6 0 0 1 6-6"/><path d="M53 47l12 12" stroke-width="4"/></svg><h2>Search everything</h2><p>Look up any mobile number, GSTIN, PAN or name across all directories.</p><span class="card-link">Open search ›</span></a>
+</section>
+{% endblock %}
+{% block content %}
+<section class="achievements" aria-label="Current record counts">
+  <h2 class="section-title">Supply network</h2>
+  <div class="metric-grid metric-grid-4">
+    <a class="metric" href="{% url 'suppliers:list' %}"><strong>{{ supplier_count }}</strong><span>Suppliers</span></a>
+    <a class="metric" href="{% url 'subcontractors:list' %}"><strong>{{ subcontractor_count }}</strong><span>Labour &amp; Composite subcontractors</span></a>
+    <div class="metric"><strong>{{ material_count }}</strong><span>Materials</span></div>
+    <div class="metric"><strong>{{ project_count }}</strong><span>Projects</span></div>
+  </div>
+</section>
+{% endblock %}
