@@ -1,0 +1,3 @@
+{% if gstin_info.status == 'empty' %}—{% else %}<span class="gstin-value">{{ gstin_info.gstin }}</span>
+{% if gstin_info.status == 'ok' %}<span class="gstin-badge ok" title="{{ gstin_info.message }}">Valid format</span>{% elif gstin_info.status == 'check_mismatch' %}<span class="gstin-badge warn" title="{{ gstin_info.message }}">Check character mismatch</span>{% else %}<span class="gstin-badge error" title="{{ gstin_info.message }}">Invalid format</span>{% endif %}
+<span class="gstin-actions"><button type="button" class="text-button" data-gst-check="{{ gstin_info.gstin }}">Check on GST portal ↗</button><span class="gstin-status" aria-live="polite">{% if gstin_info.status != 'ok' %}{{ gstin_info.message }}{% endif %}</span></span>{% endif %}

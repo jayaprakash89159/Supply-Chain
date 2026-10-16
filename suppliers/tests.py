@@ -180,3 +180,42 @@ class SupplierAdminImportTests(TestCase):
 		self.assertEqual(labels[:8], ['Vendor Code', 'Vendor / Firm Name', 'Trade', 'Material Category', 'Key Materials Supplied', 'Supplier Type', 'Brands Dealt', 'Unit of Supply'])
 		self.client.post(f'/suppliers/{supplier.pk}/edit/', {'vendor_code': 'SUP-020', 'name': 'Edit Me', 'status': 'active', 'trades': ''})
 		self.assertFalse(supplier.trade_links.exists())
+
+
+class GstinCheckTests(TestCase):
+	def setUp(self):
+		self.client.force_login(get_user_model().objects.create_superuser('gst', 'gst@example.com', 'pw'))
+
+	def test_inspect_reads_state_pan_and_check_character(self):
+		from scportal.gstin import inspect
+		info = inspect(' 36bcnpp5410k1za ')
+		self.assertEqual((info['status'], info['gstin'], info['state_code'], info['state'], info['pan']), ('ok', '36BCNPP5410K1ZA', '36', 'Telangana', 'BCNPP5410K'))
+		typo = inspect('09AERPY3845G2Z0')
+		self.assertEqual((typo['status'], typo['expected_check']), ('check_mismatch', 'O'))
+		self.assertEqual(inspect('ABC')['status'], 'invalid_format')
+		self.assertEqual(inspect('')['status'], 'empty')
+
+	def test_form_tidies_gstin_and_rejects_bad_format(self):
+		response = self.client.post('/suppliers/add/', {'vendor_code': 'SP0700', 'name': 'Tidy', 'status': 'active', 'gstin': '36bcnpp5410k1za', 'pan': 'bcnpp5410k'})
+		supplier = Supplier.objects.get(vendor_code='SP0700')
+		self.assertRedirects(response, f'/suppliers/{supplier.pk}/')
+		self.assertEqual((supplier.gstin, supplier.pan), ('36BCNPP5410K1ZA', 'BCNPP5410K'))
+		response = self.client.post('/suppliers/add/', {'vendor_code': 'SP0701', 'name': 'Bad', 'status': 'active', 'gstin': '36BCNPP5410'})
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, 'Not a valid GSTIN format')
+		self.assertFalse(Supplier.objects.filter(vendor_code='SP0701').exists())
+
+	def test_check_mismatch_is_saved_but_flagged_on_profile(self):
+		self.client.post('/suppliers/add/', {'vendor_code': 'SP0702', 'name': 'Typo', 'status': 'active', 'gstin': '09AERPY3845G2Z0'})
+		supplier = Supplier.objects.get(vendor_code='SP0702')
+		page = self.client.get(f'/suppliers/{supplier.pk}/')
+		self.assertContains(page, 'Check character mismatch')
+		self.assertContains(page, 'data-gst-check="09AERPY3845G2Z0"')
+		self.assertContains(page, 'https://services.gst.gov.in/services/searchtp')
+		self.assertContains(page, 'js/gstin.js')
+
+	def test_form_pages_load_gstin_helper(self):
+		for url in ('/suppliers/add/', '/subcontractors/add/'):
+			page = self.client.get(url)
+			self.assertContains(page, 'id="gst-config"', msg_prefix=url)
+			self.assertContains(page, '"36": "Telangana"', msg_prefix=url)

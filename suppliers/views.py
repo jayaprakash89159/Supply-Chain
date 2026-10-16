@@ -9,6 +9,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from openpyxl.utils.exceptions import InvalidFileException
 
+from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
 from scportal.search import apply_search
 
 from .admin import FIELD_HEADERS, UPLOAD_COLUMNS, SupplierUploadForm
@@ -64,7 +65,7 @@ def supplier_detail(request, pk):
 		),
 		pk=pk,
 	)
-	return render(request, 'suppliers/detail.html', {'supplier': supplier})
+	return render(request, 'suppliers/detail.html', {'supplier': supplier, 'gstin_info': inspect_gstin(supplier.gstin)})
 
 
 def _supplier_admin():
@@ -102,7 +103,7 @@ LINK_HEADERS = {
 FORM_HEADERS = {**FIELD_HEADERS, **LINK_HEADERS}
 
 
-class SupplierForm(forms.ModelForm):
+class SupplierForm(GstinFormMixin, forms.ModelForm):
 	"""Supplier fields in the same order and with the same headings as the Excel upload."""
 
 	trades = forms.CharField(required=False)

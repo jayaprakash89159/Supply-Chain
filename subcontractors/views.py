@@ -7,6 +7,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 
 from scportal.excel import READ_ERRORS
+from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
 from scportal.search import apply_search
 from suppliers.links import join_names, split_names
 
@@ -27,7 +28,7 @@ FORM_HEADERS = {**FIELD_HEADERS, **LINK_HEADERS}
 admin_required = user_passes_test(lambda user: user.is_superuser)
 
 
-class SubcontractorForm(forms.ModelForm):
+class SubcontractorForm(GstinFormMixin, forms.ModelForm):
 	"""Subcontractor fields in the same order and with the same headings as the Excel upload."""
 
 	trades = forms.CharField(required=False)
@@ -99,7 +100,7 @@ def subcontractor_detail(request, pk):
 	subcontractor = get_object_or_404(
 		_active().prefetch_related('trade_links__trade', 'project_links__project', 'supplier_links__supplier'), pk=pk,
 	)
-	return render(request, 'subcontractors/detail.html', {'subcontractor': subcontractor})
+	return render(request, 'subcontractors/detail.html', {'subcontractor': subcontractor, 'gstin_info': inspect_gstin(subcontractor.gstin)})
 
 
 @admin_required

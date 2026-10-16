@@ -48,3 +48,7 @@ body{background:var(--paper) url("../img/site/world-map-dots.png") center 60%/mi
 @media(max-width:700px){.metric-grid-4{grid-template-columns:repeat(2,1fr)}.hero-search{flex-direction:column}.search-row-5 .query-field{grid-column:1/-1}}
 @media(max-width:700px){.metric-grid-4 .metric:last-child{grid-column:auto}}
 .card-icon{display:block;width:72px;height:64px;color:#fff}.service-card.light .card-icon{color:var(--green)}
+/* GSTIN helper (static/js/gstin.js) */
+.button.small{padding:6px 10px;font-size:12px;gap:6px}.gstin-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:8px}.gstin-status{font-size:12px;line-height:1.4;color:var(--muted)}.gstin-status.ok{color:#1d7a46}.gstin-status.warn{color:#8a5a00}.gstin-status.error{color:var(--red)}.gstin-status.info{color:var(--green-dark)}
+.gstin-value{font-weight:700;letter-spacing:.3px}.gstin-badge{display:inline-block;margin-left:6px;padding:1px 6px;font-size:10px;font-weight:700;border-radius:2px;vertical-align:middle}.gstin-badge.ok{background:#e2f3e8;color:#1d7a46}.gstin-badge.warn{background:#fbf0d6;color:#8a5a00}.gstin-badge.error{background:#f6e3e1;color:var(--red)}.gstin-actions{display:block;margin-top:4px}.gstin-actions .text-button{padding:0;font-size:12px}.gstin-actions .gstin-status{display:block;margin-top:2px}
+.gstin-tools .text-button{padding:0;font-size:12px}.gstin-tools .gstin-status{flex-basis:100%}
