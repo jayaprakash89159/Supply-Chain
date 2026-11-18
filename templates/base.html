@@ -22,6 +22,7 @@
       <a href="{% url 'suppliers:list' %}"{% if namespace == 'suppliers' %} class="active"{% endif %}>Suppliers</a>
       <a href="{% url 'subcontractors:list' %}"{% if namespace == 'subcontractors' %} class="active"{% endif %}>Labour &amp; Composite</a>
       <a href="{% url 'search' %}"{% if current == 'search' %} class="active"{% endif %}>Search</a>
+      <a href="{% url 'quotes:history' %}"{% if namespace == 'quotes' %} class="active"{% endif %}>Quote requests</a>
       {% if request.user.is_superuser %}<a href="{% url 'admin_users' %}"{% if current == 'admin_users' %} class="active"{% endif %}>Users</a>{% endif %}
     </nav>
     {% endwith %}

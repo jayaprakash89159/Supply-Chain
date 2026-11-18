@@ -127,11 +127,7 @@ def _cell(value):
 	return str(value)
 
 
-def export_response(records, columns, row_values, filename, sheet_title):
-	"""An .xlsx with the template's columns. ``row_values(record)`` returns {heading: value}."""
-	workbook = Workbook()
-	sheet = workbook.active
-	sheet.title = sheet_title
+def _fill_sheet(sheet, columns, records, row_values):
 	sheet.append(columns)
 	for number, record in enumerate(records, start=1):
 		values = row_values(record)
@@ -150,11 +146,24 @@ def export_response(records, columns, row_values, filename, sheet_title):
 		for cell in column[1:]:
 			if isinstance(cell.value, datetime.date):
 				cell.number_format = 'yyyy-mm-dd'
+
+
+def workbook_response(filename, sheets):
+	"""An .xlsx with one sheet per (title, columns, records, row_values); ``row_values(record)`` gives {heading: value}."""
+	workbook = Workbook()
+	workbook.remove(workbook.active)
+	for title, columns, records, row_values in sheets:
+		_fill_sheet(workbook.create_sheet(title), columns, records, row_values)
 	output = BytesIO()
 	workbook.save(output)
 	response = HttpResponse(output.getvalue(), content_type=XLSX_CONTENT_TYPE)
 	response['Content-Disposition'] = f'attachment; filename="{filename}_{datetime.date.today():%Y-%m-%d}.xlsx"'
 	return response
+
+
+def export_response(records, columns, row_values, filename, sheet_title):
+	"""An .xlsx in the upload-template columns, so an export can be edited and checked against the template."""
+	return workbook_response(filename, [(sheet_title, columns, records, row_values)])
 
 
 def check_value(value):

@@ -243,11 +243,15 @@ class AdminDeleteTests(TestCase):
 		self.assertRedirects(response, '/suppliers/?q=x', fetch_redirect_response=False)
 		self.assertEqual(list(Supplier.objects.values_list('vendor_code', flat=True)), ['SUP-003'])
 
-	def test_admin_list_shows_checkboxes_viewer_does_not(self):
+	def test_everyone_can_select_but_only_admin_can_delete(self):
 		self.client.force_login(self.admin)
 		self.assertContains(self.client.get('/suppliers/'), 'name="ids"', count=3)
+		self.assertContains(self.client.get('/suppliers/'), 'Delete selected')
 		self.client.force_login(self.viewer)
-		self.assertNotContains(self.client.get('/suppliers/'), 'name="ids"')
+		response = self.client.get('/suppliers/')
+		self.assertContains(response, 'name="ids"', count=3)
+		self.assertContains(response, 'Request quotes')
+		self.assertNotContains(response, 'Delete selected')
 		self.assertNotContains(self.client.get(f'/suppliers/{self.s1.pk}/'), 'Delete supplier')
 
 	def test_viewer_cannot_delete(self):

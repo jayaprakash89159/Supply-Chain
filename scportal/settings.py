@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'subcontractors',
     'projects',
     'relationships',
+    'quotes',
 ]
 
 MIDDLEWARE = [
@@ -117,3 +118,16 @@ CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_HSTS_SECONDS', '0'))
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
+
+# Outgoing email (quote requests). Set these in .env; sending stays switched off while EMAIL_HOST is empty.
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '1') == '1'
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', '0') == '1'
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '30'))
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL') or EMAIL_HOST_USER or 'webmaster@localhost'
+FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024

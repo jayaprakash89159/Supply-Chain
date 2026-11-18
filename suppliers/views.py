@@ -13,7 +13,8 @@ from openpyxl.utils.exceptions import InvalidFileException
 from scportal.bulk_actions import delete_selected, set_status_selected
 from scportal.import_checks import read_error, upload_summary
 from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
-from scportal import vendor_tools
+from scportal import column_filters, vendor_tools
+from scportal.column_filters import Column
 from scportal.search import apply_search
 
 from .admin import FIELD_HEADERS, UPLOAD_COLUMNS, SupplierUploadForm
@@ -31,6 +32,16 @@ PHONE_FIELDS = ('mobile_number', 'alternate_number')
 
 
 KEY_FIELDS = [('supplier_type', 'Supplier type'), *vendor_tools.KEY_FIELDS]
+COLUMNS = [
+	Column('vendor', 'Vendor', ('name',), sort='name'),
+	Column('type', 'Type', ('supplier_type',), sort='supplier_type'),
+	Column('materials', 'Materials / trades', ('material_links__material__name', 'trade_links__trade__name')),
+	Column('contact', 'Contact', ('contact_person',), sort='contact_person'),
+	Column('location', 'Location', ('city',), sort='city'),
+	Column('rating', 'Rating', ('overall_rating',), kind='number', sort='overall_rating'),
+	Column('profile', 'Profile', kind='profile'),
+	Column('status', 'Status', ('status',), kind='choice', sort='status', choices=dict(Supplier.Status.choices)),
+]
 EXPORT_PREFETCH = (
 	'trade_links__trade', 'material_category_links__category', 'material_links__material', 'brand_links__brand',
 	'project_links__project',
@@ -61,18 +72,26 @@ def _filtered(request):
 		suppliers = suppliers.filter(vendor_tools.missing_filter(KEY_FIELDS, missing))
 	if request.GET.get('duplicates') == '1':
 		suppliers = suppliers.filter(pk__in=vendor_tools.duplicate_ids(_active()))
-	return suppliers, search
+	return column_filters.apply(suppliers, request, COLUMNS, KEY_FIELDS), search, suppliers
 
 
 @login_required
 def supplier_list(request):
-	suppliers, search = _filtered(request)
+	suppliers, search, base = _filtered(request)
 	suppliers = suppliers.prefetch_related('material_links__material__category', 'trade_links__trade')
 	page = Paginator(suppliers, 25).get_page(request.GET.get('page'))
 	vendor_tools.annotate_completeness(page.object_list, KEY_FIELDS)
 	query = request.GET.copy()
 	query.pop('page', None)
+	headings, menus = column_filters.headings(base, request, COLUMNS, KEY_FIELDS)
+	clear_columns = None
+	if column_filters.any_active(request, COLUMNS) or request.GET.get('sort'):
+		clear = query.copy()
+		for key in [key for key in clear if key.startswith('f_') or key == 'sort']:
+			clear.pop(key)
+		clear_columns = '?' + clear.urlencode()
 	return render(request, 'suppliers/list.html', {
+		'headings': headings, 'column_menus': menus, 'clear_columns': clear_columns,
 		'page': page,
 		'search': search,
 		'query_string': query.urlencode(),
@@ -84,24 +103,26 @@ def supplier_list(request):
 	})
 
 
+def export_row(supplier):
+	"""One supplier as {upload-template heading: value} for the Excel export."""
+	values = {heading: getattr(supplier, field) for heading, field in FIELD_HEADERS.items()}
+	values['Status'] = supplier.get_status_display()
+	values['GSTIN Check'] = vendor_tools.check_value(supplier.gstin_check)
+	values['IFSC Check'] = vendor_tools.check_value(supplier.ifsc_check)
+	values['Trade'] = join_names(link.trade.name for link in supplier.trade_links.all())
+	values['Material Category'] = join_names(link.category.name for link in supplier.material_category_links.all())
+	values['Key Materials Supplied'] = join_names(link.material.name for link in supplier.material_links.all())
+	values['Brands Dealt'] = join_names(link.brand.name for link in supplier.brand_links.all())
+	values['Project(s) Worked On'] = join_names(link.project.name for link in supplier.project_links.all())
+	return values
+
+
 @login_required
 def supplier_export(request):
-	suppliers, _ = _filtered(request)
-
-	def row(supplier):
-		values = {heading: getattr(supplier, field) for heading, field in FIELD_HEADERS.items()}
-		values['Status'] = supplier.get_status_display()
-		values['GSTIN Check'] = vendor_tools.check_value(supplier.gstin_check)
-		values['IFSC Check'] = vendor_tools.check_value(supplier.ifsc_check)
-		values['Trade'] = join_names(link.trade.name for link in supplier.trade_links.all())
-		values['Material Category'] = join_names(link.category.name for link in supplier.material_category_links.all())
-		values['Key Materials Supplied'] = join_names(link.material.name for link in supplier.material_links.all())
-		values['Brands Dealt'] = join_names(link.brand.name for link in supplier.brand_links.all())
-		values['Project(s) Worked On'] = join_names(link.project.name for link in supplier.project_links.all())
-		return values
+	suppliers, _, _ = _filtered(request)
 
 	return vendor_tools.export_response(
-		suppliers.prefetch_related(*EXPORT_PREFETCH), UPLOAD_COLUMNS, row, 'suppliers', 'Suppliers',
+		suppliers.prefetch_related(*EXPORT_PREFETCH), UPLOAD_COLUMNS, export_row, 'suppliers', 'Suppliers',
 	)
 
 

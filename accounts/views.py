@@ -6,6 +6,9 @@ from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
 from django.apps import apps
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.text import slugify
+
+from scportal import vendor_tools
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
@@ -56,6 +59,36 @@ MATCH_LABELS = {
 SEARCH_RESULT_LIMIT = 50
 
 
+def _search_querysets(search):
+	supplier_qs = apply_search(
+		apps.get_model('suppliers', 'Supplier').objects.filter(archived_at__isnull=True),
+		search, SUP_SEARCH_FIELDS, SUP_PHONE_FIELDS,
+	)
+	subcontractor_qs = apply_search(
+		apps.get_model('subcontractors', 'DirectSubcontractor').objects.filter(archived_at__isnull=True),
+		search, SUB_SEARCH_FIELDS, SUB_PHONE_FIELDS,
+	)
+	return supplier_qs, subcontractor_qs
+
+
+@login_required
+def search_export(request):
+	"""Every search result (not just the first page) as Excel: a Suppliers sheet and a Labour & Composite sheet."""
+	from subcontractors import views as subcontractor_views
+	from subcontractors.importer import UPLOAD_COLUMNS as SUB_COLUMNS
+	from suppliers import views as supplier_views
+	from suppliers.admin import UPLOAD_COLUMNS as SUP_COLUMNS
+
+	search = request.GET.get('q', '').strip()
+	if not search:
+		return redirect('search')
+	supplier_qs, subcontractor_qs = _search_querysets(search)
+	return vendor_tools.workbook_response(f'search_{slugify(search)[:40] or "results"}', [
+		('Suppliers', SUP_COLUMNS, supplier_qs.prefetch_related(*supplier_views.EXPORT_PREFETCH), supplier_views.export_row),
+		('Labour & Composite', SUB_COLUMNS, subcontractor_qs.prefetch_related(*subcontractor_views.EXPORT_PREFETCH), subcontractor_views.export_row),
+	])
+
+
 @login_required
 def global_search(request):
 	"""Search suppliers and Labour & Composite subcontractors together from the dashboard."""
@@ -63,14 +96,7 @@ def global_search(request):
 	suppliers = subcontractors = []
 	supplier_total = subcontractor_total = 0
 	if search:
-		supplier_qs = apply_search(
-			apps.get_model('suppliers', 'Supplier').objects.filter(archived_at__isnull=True),
-			search, SUP_SEARCH_FIELDS, SUP_PHONE_FIELDS,
-		)
-		subcontractor_qs = apply_search(
-			apps.get_model('subcontractors', 'DirectSubcontractor').objects.filter(archived_at__isnull=True),
-			search, SUB_SEARCH_FIELDS, SUB_PHONE_FIELDS,
-		)
+		supplier_qs, subcontractor_qs = _search_querysets(search)
 		supplier_total, subcontractor_total = supplier_qs.count(), subcontractor_qs.count()
 		labels = {**MATCH_LABELS, 'vendor_code': 'Vendor code', 'supplier_type': 'Supplier type'}
 		suppliers = [(record, matched_fields(record, search, labels)) for record in supplier_qs[:SEARCH_RESULT_LIMIT]]
