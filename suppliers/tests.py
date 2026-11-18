@@ -283,7 +283,7 @@ class AdminDeleteTests(TestCase):
 		self.client.force_login(self.admin)
 		response = self.client.get(f'/suppliers/{self.s1.pk}/')
 		self.assertContains(response, 'Delete supplier')
-		self.assertContains(response, 'js/bulk-delete.js')
+		self.assertContains(response, 'js/bulk-actions.js')
 		response = self.client.get(f'/subcontractors/{self.sub1.pk}/')
 		self.assertContains(response, 'Delete subcontractor')
 		self.assertContains(self.client.get('/subcontractors/'), 'name="ids"', count=2)

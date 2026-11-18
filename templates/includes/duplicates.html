@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Duplicate check | {{ kind }}{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">DATA CHECK / {{ kind|upper }}</p><h1>Possible duplicates</h1><p class="lede">Vendors that share a bank account number, GSTIN, PAN or phone number. Some are fine (one firm with branches in several states shares a PAN), but a bank account used by differently named vendors should be checked before payment.</p></div><div class="heading-actions"><a class="button" href="{% url list_url %}?duplicates=1">Show them in the list</a><a class="button" href="{% url list_url %}">Back to list</a></div></section>
+{% if groups %}<p class="search-meta dup-summary">{{ groups|length }} shared value{{ groups|length|pluralize }} found.</p>
+{% regroup groups by label as sections %}{% for section in sections %}<section class="dup-section"><h2>{{ section.grouper }} <span class="count">{{ section.list|length }}</span></h2><div class="table-wrap"><table><thead><tr><th>Shared value</th><th>Vendors</th></tr></thead><tbody>{% for group in section.list %}<tr><td class="dup-value">{{ group.value }}</td><td>{% for record in group.records %}<a class="table-link" href="{% url detail_url record.pk %}">{{ record.name }}</a> <small class="profile-meta">{% if code_field == 'code' %}{{ record.code }}{% else %}{{ record.vendor_code }}{% endif %} · {{ record.get_status_display }}{% if record.city %} · {{ record.city }}{% endif %}</small>{% endfor %}</td></tr>{% endfor %}</tbody></table></div></section>{% endfor %}
+{% else %}<div class="panel empty-state">No duplicates found: no two vendors share a bank account number, GSTIN, PAN or phone number.</div>{% endif %}
+{% endblock %}
