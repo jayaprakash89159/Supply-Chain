@@ -1,6 +1,8 @@
 from django.db import models
 from django.db.models import Q
 
+from scportal.emails import MultipleEmailField, split_emails
+
 
 class Supplier(models.Model):
 	class Status(models.TextChoices):
@@ -15,7 +17,7 @@ class Supplier(models.Model):
 	contact_person = models.CharField(max_length=180, blank=True)
 	mobile_number = models.CharField(max_length=30, blank=True)
 	alternate_number = models.CharField(max_length=30, blank=True)
-	email = models.EmailField(blank=True)
+	email = MultipleEmailField(blank=True)
 	full_address = models.TextField(blank=True)
 	city = models.CharField(max_length=100, blank=True, db_index=True)
 	state = models.CharField(max_length=100, blank=True, db_index=True)
@@ -59,6 +61,10 @@ class Supplier(models.Model):
 			models.CheckConstraint(condition=Q(price_rating__isnull=True) | Q(price_rating__gte=0, price_rating__lte=5), name='supplier_price_rating_range'),
 			models.CheckConstraint(condition=Q(overall_rating__isnull=True) | Q(overall_rating__gte=0, overall_rating__lte=5), name='supplier_overall_rating_range'),
 		]
+
+	@property
+	def email_list(self):
+		return split_emails(self.email)
 
 	def __str__(self):
 		return f'{self.vendor_code} - {self.name}'

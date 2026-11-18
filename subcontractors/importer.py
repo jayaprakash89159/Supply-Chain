@@ -4,7 +4,8 @@ from django.db import transaction
 
 from materials.models import Trade
 from relationships.models import DirectSubcontractorProject, DirectSubcontractorTrade
-from scportal.excel import header_key, numbers_as_text, open_sheet, parse_boolean, parse_status, template_response
+from scportal.excel import header_key, numbers_as_text, open_sheet, template_response
+from scportal.import_checks import ImportProblems, check_row, duplicate_problem
 from suppliers.links import named_record, project_record, split_names
 
 from .models import DirectSubcontractor
@@ -66,7 +67,6 @@ FIELD_HEADERS = {
 LINK_HEADERS = {'Trade': 'trades', 'Project(s) Worked On': 'projects'}
 LINK_FIELDS = tuple(LINK_HEADERS.values())
 HEADER_ALIASES = {'Labour Strength Available': 'labour_strength', 'Labour Strength': 'labour_strength'}
-BOOLEAN_FIELDS = ('gstin_check', 'ifsc_check', 'worked_with_vishwa_before')
 NUMBER_TEXT_FIELDS = ('pin_code', 'mobile_number', 'alternate_number', 'bank_account_number', 'gst_state_code')
 NON_TEXT_COLUMNS = {
 	'Sl No', 'Labour Strength Available (Nos)', 'GSTIN Check', 'IFSC Check', 'Worked with VISHWA Before?',
@@ -76,7 +76,7 @@ SAMPLE_ROWS = [
 	[
 		1, 'SC0001', 'Sri Sai Labour Contractors', 'Civil', 'Labour', 'Shuttering and concreting labour',
 		40, 'LL/HYD/2024/118', '52000123450001001', 'APHYD1234567000', 'Ramesh Kumar', '9876543210', '',
-		'ramesh@example.com', 'Plot 12, Kukatpally', 'Hyderabad', 'Telangana', '500072', 'Regular',
+		'ramesh@example.com; accounts@example.com', 'Plot 12, Kukatpally', 'Hyderabad', 'Telangana', '500072', 'Regular',
 		'36ABCPK1234F1Z5', '36', 'ABCPK1234F', 'OK', 'Micro', 'UDYAM-TS-02-0012345', '194C',
 		'Sri Sai Labour Contractors', 'State Bank of India', '12345678901', 'SBIN0001234', 'Kukatpally',
 		'OK', '', 'Yes', '', 4, 4, 5, 4.3, '2026-09-01', 'Active', 'Example row - replace or delete',
@@ -89,6 +89,7 @@ INSTRUCTIONS = [
 	'Trade and Project(s) Worked On accept any names; separate several with commas. New names are added automatically.',
 	'Labour Strength Available (Nos) is a whole number. Ratings are 0 to 5. Dates use YYYY-MM-DD.',
 	'Status: Active, On hold or Inactive. Checks accept OK/Not OK or Yes/No.',
+	'Email can hold several addresses separated by ";", e.g. accounts@abc.com; sales@abc.com.',
 ]
 
 
@@ -121,31 +122,26 @@ def _field_map():
 	return field_map
 
 
-def _integer(value):
-	if value in (None, ''):
-		return None
-	try:
-		number = float(value)
-	except (TypeError, ValueError):
-		raise ValidationError(f'Use a whole number, not {value!r}.')
-	if number != int(number) or number < 0:
-		raise ValidationError(f'Use a whole number, not {value!r}.')
-	return int(number)
-
-
 def import_workbook(uploaded_file):
 	"""Validate every row, then create all subcontractors in one transaction. Returns the count."""
 	header_names, rows = open_sheet(uploaded_file, (SHEET_TITLE, 'Labour and Composite', 'Subcontractors'))
 	field_map = _field_map()
 	unknown = [name for name in header_names if name and header_key(name) not in field_map]
 	if unknown:
-		raise ValidationError(f'Unknown column(s): {", ".join(unknown)}.')
+		raise ValidationError(
+			f'The sheet has column(s) the portal does not recognise: {", ".join(f"“{name}”" for name in unknown)}. '
+			'Rename them to match the template headings, or delete those columns.'
+		)
 	present = {field_map[header_key(name)] for name in header_names if name}
 	missing = [heading for heading, field in (('Vendor Code', 'code'), ('Vendor / Firm Name', 'name')) if field not in present]
 	if missing:
-		raise ValidationError(f'Missing required column(s): {", ".join(missing)}.')
+		raise ValidationError(
+			f'The sheet is missing the required column(s) {", ".join(f"“{name}”" for name in missing)}. '
+			'Download the template and copy its header row.'
+		)
 
-	import_rows, row_errors, seen_codes = [], [], set()
+	columns = {field_map[header_key(name)]: name for name in header_names if name and field_map[header_key(name)]}
+	import_rows, problems, first_rows = [], [], {}
 	for row_number, row in enumerate(rows, start=2):
 		if not any(value is not None and str(value).strip() for value in row):
 			continue
@@ -160,41 +156,21 @@ def import_workbook(uploaded_file):
 				link_names[field] = split_names(value)
 			else:
 				values[field] = value.strip() if isinstance(value, str) else value
-		error_count = len(row_errors)
-		for field in BOOLEAN_FIELDS:
-			if field in values:
-				try:
-					values[field] = parse_boolean(values[field])
-				except ValidationError as exc:
-					values.pop(field)
-					row_errors.extend(f'Row {row_number}, {field}: {error}' for error in exc.messages)
-		if 'labour_strength' in values:
-			try:
-				values['labour_strength'] = _integer(values['labour_strength'])
-			except ValidationError as exc:
-				values.pop('labour_strength')
-				row_errors.extend(f'Row {row_number}, labour_strength: {error}' for error in exc.messages)
 		numbers_as_text(values, NUMBER_TEXT_FIELDS)
-		if 'status' in values:
-			values['status'] = parse_status(values['status'])
 		code = str(values.get('code', '')).strip()
-		if code in seen_codes:
-			row_errors.append(f'Row {row_number}: duplicate Vendor Code {code!r} in this workbook.')
+		if code and code in first_rows:
+			problems.append(duplicate_problem(row_number, values, 'code', columns['code'], first_rows[code]))
 			continue
-		seen_codes.add(code)
-		subcontractor = DirectSubcontractor(**values)
-		try:
-			subcontractor.full_clean()
-		except ValidationError as exc:
-			messages_by_field = getattr(exc, 'message_dict', {'row': exc.messages})
-			row_errors.extend(f'Row {row_number}, {field}: {", ".join(errors)}' for field, errors in messages_by_field.items())
-		if len(row_errors) == error_count:
+		first_rows.setdefault(code, row_number)
+		subcontractor, row_problems = check_row(DirectSubcontractor, values, row_number, columns, 'code')
+		problems.extend(row_problems)
+		if not row_problems:
 			import_rows.append((subcontractor, link_names))
 
-	if row_errors:
-		raise ValidationError(row_errors)
+	if problems:
+		raise ImportProblems(problems)
 	if not import_rows:
-		raise ValidationError('The sheet contains no subcontractor rows to import.')
+		raise ValidationError('The sheet has a header row but no subcontractor rows below it. Add at least one row and upload again.')
 	with transaction.atomic():
 		for subcontractor, link_names in import_rows:
 			subcontractor.save()

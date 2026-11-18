@@ -74,8 +74,10 @@ class SubcontractorUploadTests(TestCase):
 		workbook.save(output)
 		response = self.client.post('/subcontractors/upload/', {'file': SimpleUploadedFile('s.xlsx', output.getvalue())})
 		self.assertEqual(response.status_code, 200)
-		self.assertContains(response, 'labour_strength')
-		self.assertContains(response, 'quality_rating')
+		self.assertContains(response, 'Labour Strength Available (Nos)')
+		self.assertContains(response, '“forty” is not a number')
+		self.assertContains(response, 'Quality (1-5)')
+		self.assertContains(response, '“7” is outside the 0–5 rating scale')
 		self.assertFalse(DirectSubcontractor.objects.exists())
 
 	def test_add_and_edit_in_portal(self):
@@ -140,3 +142,42 @@ class SearchTests(TestCase):
 		response = self.client.get('/')
 		self.assertContains(response, 'action="/search/"')
 		self.assertContains(response, 'Labour &amp; Composite')
+
+
+class MultipleEmailTests(TestCase):
+	def setUp(self):
+		self.client.force_login(get_user_model().objects.create_superuser(username='boss', email='b@example.com', password='pw'))
+
+	def upload(self, email):
+		from openpyxl import Workbook
+		workbook = Workbook()
+		sheet = workbook.active
+		sheet.title = 'Labour & Composite'
+		sheet.append(['Vendor Code', 'Vendor / Firm Name', 'Email'])
+		sheet.append(['LC1', 'Gang One', email])
+		output = BytesIO()
+		workbook.save(output)
+		return self.client.post('/subcontractors/upload/', {'file': SimpleUploadedFile('s.xlsx', output.getvalue())})
+
+	def test_upload_accepts_several_emails(self):
+		response = self.upload(' site@gang.in ;accounts@gang.in;; owner@gang.in ; SITE@gang.in ')
+		self.assertRedirects(response, '/subcontractors/', fetch_redirect_response=False)
+		sub = DirectSubcontractor.objects.get(code='LC1')
+		self.assertEqual(sub.email, 'site@gang.in; accounts@gang.in; owner@gang.in')
+		page = self.client.get(f'/subcontractors/{sub.pk}/')
+		self.assertContains(page, 'href="mailto:accounts@gang.in"')
+		self.assertContains(self.client.get('/subcontractors/', {'q': 'owner@gang'}), 'Gang One')
+
+	def test_bad_address_in_list_is_named(self):
+		response = self.upload('site@gang.in; accounts-gang.in')
+		self.assertContains(response, '“accounts-gang.in” (2nd email) is not a valid email address')
+		self.assertFalse(DirectSubcontractor.objects.exists())
+
+	def test_edit_form_accepts_several_emails(self):
+		sub = DirectSubcontractor.objects.create(code='LC2', name='Gang Two')
+		response = self.client.post(f'/subcontractors/{sub.pk}/edit/', {
+			'code': 'LC2', 'name': 'Gang Two', 'status': 'active', 'email': 'a@gang.in;b@gang.in',
+		})
+		self.assertRedirects(response, f'/subcontractors/{sub.pk}/', fetch_redirect_response=False)
+		sub.refresh_from_db()
+		self.assertEqual(sub.email, 'a@gang.in; b@gang.in')

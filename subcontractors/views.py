@@ -5,8 +5,12 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
+from relationships.models import SupplierDirectSubcontractor
+from scportal.deletion import delete_selected
 from scportal.excel import READ_ERRORS
+from scportal.import_checks import read_error, upload_summary
 from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
 from scportal.search import apply_search
 from suppliers.links import join_names, split_names
@@ -127,19 +131,34 @@ def subcontractor_edit(request, pk):
 @admin_required
 def subcontractor_upload(request):
 	form = UploadForm(request.POST or None, request.FILES or None)
+	problems = []
 	if request.method == 'POST' and form.is_valid():
 		try:
 			created_count = import_workbook(form.cleaned_data['file'])
 		except READ_ERRORS as exc:
-			form.add_error('file', f'Could not read this Excel workbook: {exc}')
+			form.add_error('file', read_error(exc).messages)
 		except ValidationError as exc:
-			form.add_error('file', exc.messages)
+			problems = getattr(exc, 'problems', [])
+			form.add_error('file', upload_summary(problems) if problems else exc.messages)
 		else:
 			messages.success(request, f'Imported {created_count} subcontractor(s).')
 			return redirect('subcontractors:list')
-	return render(request, 'subcontractors/upload.html', {'form': form})
+	return render(request, 'subcontractors/upload.html', {'form': form, 'problems': problems})
 
 
 @admin_required
 def subcontractor_template(request):
 	return template_download()
+
+
+@require_POST
+@admin_required
+def subcontractor_delete(request):
+	"""Permanently delete one or more subcontractors (ticked on the list, or from a profile page)."""
+	def unlink_suppliers(records):
+		# Supplier links protect subcontractors from deletion, so they are removed first.
+		SupplierDirectSubcontractor.objects.filter(subcontractor__in=records).delete()
+
+	return delete_selected(
+		request, DirectSubcontractor.objects.all(), 'subcontractor', 'subcontractors:list', before_delete=unlink_suppliers,
+	)

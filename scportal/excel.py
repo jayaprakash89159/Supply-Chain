@@ -82,15 +82,17 @@ def open_sheet(uploaded_file, preferred_names):
 	try:
 		workbook = load_workbook(uploaded_file, read_only=True, data_only=True)
 	except READ_ERRORS as exc:
-		raise ValidationError(f'Could not read this Excel workbook: {exc}') from exc
+		from .import_checks import read_error
+		raise read_error(exc) from exc
 	wanted = {header_key(name) for name in preferred_names}
 	sheet_name = next((name for name in workbook.sheetnames if header_key(name) in wanted), workbook.sheetnames[0])
 	rows = workbook[sheet_name].iter_rows(values_only=True)
 	headers = next(rows, None)
 	if not headers:
-		raise ValidationError(f'The {sheet_name} sheet must have a header row.')
+		raise ValidationError(f'The “{sheet_name}” sheet is empty. Row 1 must hold the column headings from the template.')
 	header_names = [str(value).strip() if value is not None else '' for value in headers]
 	nonempty = [name for name in header_names if name]
-	if len(nonempty) != len(set(nonempty)):
-		raise ValidationError('The header row contains duplicate column names.')
+	repeated = sorted({name for name in nonempty if nonempty.count(name) > 1})
+	if repeated:
+		raise ValidationError(f'These column headings appear more than once in row 1: {", ".join(f"“{name}”" for name in repeated)}. Keep one of each.')
 	return header_names, rows

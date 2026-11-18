@@ -134,7 +134,8 @@ class SupplierAdminImportTests(TestCase):
 			])},
 		)
 		self.assertEqual(response.status_code, 200)
-		self.assertContains(response, 'overall_rating')
+		self.assertContains(response, 'Row 3 (SUP-005 – Invalid Supplier), column “Overall Rating”')
+		self.assertContains(response, 'outside the 0–5 rating scale')
 		self.assertFalse(Supplier.objects.filter(vendor_code__in=['SUP-004', 'SUP-005']).exists())
 
 	def test_import_creates_missing_master_data(self):
@@ -219,3 +220,148 @@ class GstinCheckTests(TestCase):
 			page = self.client.get(url)
 			self.assertContains(page, 'id="gst-config"', msg_prefix=url)
 			self.assertContains(page, '"36": "Telangana"', msg_prefix=url)
+
+
+class AdminDeleteTests(TestCase):
+	def setUp(self):
+		from subcontractors.models import DirectSubcontractor
+		from relationships.models import SupplierDirectSubcontractor
+
+		self.admin = get_user_model().objects.create_superuser(username='boss', email='boss@example.com', password='pw')
+		self.viewer = get_user_model().objects.create_user(username='viewer', password='pw')
+		self.s1 = Supplier.objects.create(vendor_code='SUP-001', name='Northstar Steel')
+		self.s2 = Supplier.objects.create(vendor_code='SUP-002', name='Riverbend Cement')
+		self.s3 = Supplier.objects.create(vendor_code='SUP-003', name='Keep Me Traders')
+		self.sub1 = DirectSubcontractor.objects.create(code='LC-001', name='Gang One')
+		self.sub2 = DirectSubcontractor.objects.create(code='LC-002', name='Gang Two')
+		SupplierDirectSubcontractor.objects.create(supplier=self.s3, subcontractor=self.sub1)
+		self.Sub = DirectSubcontractor
+
+	def test_admin_deletes_multiple_suppliers(self):
+		self.client.force_login(self.admin)
+		response = self.client.post('/suppliers/delete/', {'ids': [self.s1.pk, self.s2.pk], 'next': '/suppliers/?q=x'})
+		self.assertRedirects(response, '/suppliers/?q=x', fetch_redirect_response=False)
+		self.assertEqual(list(Supplier.objects.values_list('vendor_code', flat=True)), ['SUP-003'])
+
+	def test_admin_list_shows_checkboxes_viewer_does_not(self):
+		self.client.force_login(self.admin)
+		self.assertContains(self.client.get('/suppliers/'), 'name="ids"', count=3)
+		self.client.force_login(self.viewer)
+		self.assertNotContains(self.client.get('/suppliers/'), 'name="ids"')
+		self.assertNotContains(self.client.get(f'/suppliers/{self.s1.pk}/'), 'Delete supplier')
+
+	def test_viewer_cannot_delete(self):
+		self.client.force_login(self.viewer)
+		self.client.post('/suppliers/delete/', {'ids': [self.s1.pk]})
+		self.client.post('/subcontractors/delete/', {'ids': [self.sub2.pk]})
+		self.assertEqual(Supplier.objects.count(), 3)
+		self.assertEqual(self.Sub.objects.count(), 2)
+
+	def test_get_is_rejected(self):
+		self.client.force_login(self.admin)
+		self.assertEqual(self.client.get('/suppliers/delete/').status_code, 405)
+
+	def test_nothing_selected_shows_error(self):
+		self.client.force_login(self.admin)
+		response = self.client.post('/suppliers/delete/', {}, follow=True)
+		self.assertContains(response, 'Select at least one supplier')
+		self.assertEqual(Supplier.objects.count(), 3)
+
+	def test_admin_deletes_linked_subcontractor(self):
+		self.client.force_login(self.admin)
+		response = self.client.post('/subcontractors/delete/', {'ids': [self.sub1.pk, self.sub2.pk]})
+		self.assertRedirects(response, '/subcontractors/', fetch_redirect_response=False)
+		self.assertEqual(self.Sub.objects.count(), 0)
+		self.assertTrue(Supplier.objects.filter(pk=self.s3.pk).exists())
+
+	def test_external_next_url_is_ignored(self):
+		self.client.force_login(self.admin)
+		response = self.client.post('/suppliers/delete/', {'ids': [self.s1.pk], 'next': 'https://evil.example/'})
+		self.assertRedirects(response, '/suppliers/', fetch_redirect_response=False)
+
+	def test_admin_profile_pages_show_delete_button(self):
+		self.client.force_login(self.admin)
+		response = self.client.get(f'/suppliers/{self.s1.pk}/')
+		self.assertContains(response, 'Delete supplier')
+		self.assertContains(response, 'js/bulk-delete.js')
+		response = self.client.get(f'/subcontractors/{self.sub1.pk}/')
+		self.assertContains(response, 'Delete subcontractor')
+		self.assertContains(self.client.get('/subcontractors/'), 'name="ids"', count=2)
+
+
+class UploadMessageTests(TestCase):
+	"""Cells that used to fail with Django's internal messages, e.g. '“” value must be a decimal number'."""
+
+	HEADERS = ['Vendor Code', 'Vendor / Firm Name', 'Quality (1-5)', 'Overall Rating', 'Last Reviewed On', 'Status', 'Email']
+
+	def setUp(self):
+		self.client.force_login(get_user_model().objects.create_superuser(username='boss', email='b@example.com', password='pw'))
+
+	def upload(self, *rows):
+		workbook = Workbook()
+		sheet = workbook.active
+		sheet.title = 'Suppliers'
+		sheet.append(self.HEADERS)
+		for row in rows:
+			sheet.append(row)
+		output = BytesIO()
+		workbook.save(output)
+		return self.client.post('/suppliers/upload/', {'file': SimpleUploadedFile('s.xlsx', output.getvalue())})
+
+	def test_blank_looking_and_na_cells_are_treated_as_empty(self):
+		response = self.upload(
+			['SP1', 'Blank Rating', ' ', '', '', '', ''],
+			['SP2', 'NA Rating', 'NA', '-', 'N/A', '', ''],
+		)
+		self.assertRedirects(response, '/suppliers/', fetch_redirect_response=False)
+		supplier = Supplier.objects.get(vendor_code='SP1')
+		self.assertIsNone(supplier.overall_rating)
+		self.assertEqual(supplier.status, 'active')
+		self.assertIsNone(Supplier.objects.get(vendor_code='SP2').quality_rating)
+
+	def test_common_excel_formats_are_accepted(self):
+		response = self.upload(['SP3', 'Formats', '4,5', 4.3333, '17/11/2026', 'on hold', ''])
+		self.assertRedirects(response, '/suppliers/', fetch_redirect_response=False)
+		supplier = Supplier.objects.get(vendor_code='SP3')
+		self.assertEqual(str(supplier.quality_rating), '4.50')
+		self.assertEqual(str(supplier.overall_rating), '4.33')
+		self.assertEqual(supplier.last_reviewed_on.isoformat(), '2026-11-17')
+		self.assertEqual(supplier.status, 'on_hold')
+
+	def test_problems_name_row_vendor_column_and_fix(self):
+		Supplier.objects.create(vendor_code='SP9', name='Already Here')
+		response = self.upload(
+			['SP4', 'Bad Cells', 'good', 9, 'someday', 'Maybe', 'not-an-email'],
+			['SP9', 'Already Here', '', '', '', '', ''],
+			['SP4', 'Copy', '', '', '', '', ''],
+			['', 'No Code', '', '', '', '', ''],
+		)
+		self.assertEqual(Supplier.objects.count(), 1)
+		content = response.content.decode()
+		self.assertNotIn('__all__', content)
+		self.assertNotIn('value must be a decimal number', content)
+		for text in (
+			'Nothing was imported. Found 8 problems in 4 rows.',
+			'SP4 – Bad Cells', 'Quality (1-5)', '“good” is not a number.',
+			'“9” is outside the 0–5 rating scale.',
+			'“someday” is not a date. Use YYYY-MM-DD',
+			'“Maybe” is not a status the portal knows. Use one of: Active, On hold, Inactive.',
+			'“not-an-email” is not a valid email address',
+			'“SP9” is already in the portal.',
+			'Vendor code “SP4” is used again — it already appears on row 2 of this sheet.',
+			'This cell is empty, but the column is required.',
+		):
+			self.assertIn(text, content)
+
+	def test_unknown_and_missing_columns_are_explained(self):
+		self.HEADERS = ['Vendor Code', 'Firm', 'Colour']
+		response = self.upload(['SP5', 'X', 'Red'])
+		self.assertContains(response, 'column(s) the portal does not recognise: “Firm”, “Colour”')
+
+	def test_supplier_upload_accepts_several_emails(self):
+		self.HEADERS = ['Vendor Code', 'Vendor / Firm Name', 'Email']
+		response = self.upload(['SP6', 'Multi Mail', 'sales@abc.com; accounts@abc.com;purchase@abc.com'])
+		self.assertRedirects(response, '/suppliers/', fetch_redirect_response=False)
+		supplier = Supplier.objects.get(vendor_code='SP6')
+		self.assertEqual(supplier.email_list, ['sales@abc.com', 'accounts@abc.com', 'purchase@abc.com'])
+		self.assertContains(self.client.get(f'/suppliers/{supplier.pk}/'), 'href="mailto:purchase@abc.com"')

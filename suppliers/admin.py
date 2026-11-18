@@ -12,6 +12,9 @@ from django.urls import path, reverse
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
+from scportal.excel import numbers_as_text
+from scportal.import_checks import ImportProblems, check_row, duplicate_problem, read_error
+
 from .links import LINK_FIELDS, save_links, split_names
 from .models import Supplier
 
@@ -65,6 +68,9 @@ FIELD_HEADERS = {
 	'Status': 'status',
 	'Remarks': 'remarks',
 }
+
+
+NUMBER_TEXT_FIELDS = ('pin_code', 'mobile_number', 'alternate_number', 'bank_account_number', 'gst_state_code')
 
 
 def _header_key(value):
@@ -134,6 +140,7 @@ class SupplierAdmin(admin.ModelAdmin):
 		instructions.append(['Give one Material Category for all materials, or one category per material in the same order. Materials without a category are filed under General.'])
 		instructions.append(['Status: Active, On hold, or Inactive. Checks accept OK/Not OK or Yes/No. Ratings must be between 0 and 5.'])
 		instructions.append(['Dates use YYYY-MM-DD. Existing vendor codes cannot be uploaded again.'])
+		instructions.append(['Email can hold several addresses separated by ";", e.g. accounts@abc.com; sales@abc.com.'])
 		output = BytesIO()
 		workbook.save(output)
 		response = HttpResponse(
@@ -148,8 +155,6 @@ class SupplierAdmin(admin.ModelAdmin):
 		if request.method == 'POST' and form.is_valid():
 			try:
 				created_count = self._import_workbook(form.cleaned_data['file'])
-			except (BadZipFile, InvalidFileException, OSError, ValueError) as exc:
-				form.add_error('file', f'Could not read this Excel workbook: {exc}')
 			except ValidationError as exc:
 				form.add_error('file', exc.messages)
 			else:
@@ -167,19 +172,23 @@ class SupplierAdmin(admin.ModelAdmin):
 		try:
 			workbook = load_workbook(uploaded_file, read_only=True, data_only=True)
 		except (BadZipFile, InvalidFileException, OSError, ValueError) as exc:
-			raise ValidationError(f'Could not read this Excel workbook: {exc}') from exc
+			raise read_error(exc) from exc
 		if 'Suppliers' not in workbook.sheetnames:
-			raise ValidationError('The workbook must contain a sheet named Suppliers.')
+			raise ValidationError(
+				f'The workbook needs a sheet named “Suppliers”. Its sheets are: {", ".join(f"“{name}”" for name in workbook.sheetnames)}. '
+				'Rename the sheet that holds the supplier rows to Suppliers.'
+			)
 
 		sheet = workbook['Suppliers']
 		rows = sheet.iter_rows(values_only=True)
 		headers = next(rows, None)
 		if not headers:
-			raise ValidationError('The Suppliers sheet must have a header row.')
+			raise ValidationError('The “Suppliers” sheet is empty. Row 1 must hold the column headings from the template.')
 		header_names = [str(value).strip() if value is not None else '' for value in headers]
 		nonempty_headers = [name for name in header_names if name]
-		if len(nonempty_headers) != len(set(nonempty_headers)):
-			raise ValidationError('The header row contains duplicate column names.')
+		repeated = sorted({name for name in nonempty_headers if nonempty_headers.count(name) > 1})
+		if repeated:
+			raise ValidationError(f'These column headings appear more than once in row 1: {", ".join(f"“{name}”" for name in repeated)}. Keep one of each.')
 
 		field_map = {_header_key(header): field for header, field in FIELD_HEADERS.items()}
 		for field in Supplier._meta.fields:
@@ -193,18 +202,24 @@ class SupplierAdmin(admin.ModelAdmin):
 		field_map[_header_key('Project(s) Worked On')] = 'projects'
 		unknown_headers = [name for name in header_names if name and _header_key(name) not in field_map]
 		if unknown_headers:
-			raise ValidationError(f'Unknown column(s): {", ".join(unknown_headers)}.')
+			raise ValidationError(
+				f'The sheet has column(s) the portal does not recognise: {", ".join(f"“{name}”" for name in unknown_headers)}. '
+				'Rename them to match the template headings, or delete those columns.'
+			)
 		mapped_headers = {_header_key(name) for name in header_names}
 		missing_required = {
 			name for name in ('vendor_code', 'name')
 			if not any(field == name and key in mapped_headers for key, field in field_map.items())
 		}
 		if missing_required:
-			raise ValidationError(f'Missing required column(s): {", ".join(sorted(missing_required))}.')
+			headings = {'vendor_code': 'Vendor Code', 'name': 'Vendor / Firm Name'}
+			raise ValidationError(
+				f'The sheet is missing the required column(s) {", ".join(f"“{headings[name]}”" for name in sorted(missing_required, reverse=True))}. '
+				'Download the template and copy its header row.'
+			)
 
-		import_rows = []
-		seen_vendor_codes = set()
-		row_errors = []
+		columns = {field_map[_header_key(name)]: name for name in header_names if name and field_map[_header_key(name)]}
+		import_rows, problems, first_rows = [], [], {}
 		for row_number, row in enumerate(rows, start=2):
 			if not any(value is not None and str(value).strip() for value in row):
 				continue
@@ -220,63 +235,23 @@ class SupplierAdmin(admin.ModelAdmin):
 					link_names[mapped_field] = split_names(value)
 				else:
 					values[mapped_field] = value.strip() if isinstance(value, str) else value
-			row_error_count = len(row_errors)
-			for field_name in ('gstin_check', 'ifsc_check', 'worked_with_vishwa_before'):
-				if field_name in values:
-					try:
-						values[field_name] = self._parse_boolean(values[field_name])
-					except ValidationError as exc:
-						row_errors.extend(f'Row {row_number}, {field_name}: {error}' for error in exc.messages)
-			for field_name in ('pin_code', 'mobile_number', 'alternate_number', 'bank_account_number', 'gst_state_code'):
-				if isinstance(values.get(field_name), (int, float)) and not isinstance(values[field_name], bool):
-					values[field_name] = str(int(values[field_name]))
-			if str(values.get('gst_state_code', '')).isdigit():
-				values['gst_state_code'] = values['gst_state_code'].zfill(2)
-			if 'status' in values:
-				values['status'] = self._parse_status(values['status'])
+			numbers_as_text(values, NUMBER_TEXT_FIELDS)
 			vendor_code = str(values.get('vendor_code', '')).strip()
-			if vendor_code in seen_vendor_codes:
-				row_errors.append(f'Row {row_number}: duplicate vendor_code {vendor_code!r} in this workbook.')
+			if vendor_code and vendor_code in first_rows:
+				problems.append(duplicate_problem(row_number, values, 'vendor_code', columns['vendor_code'], first_rows[vendor_code]))
 				continue
-			seen_vendor_codes.add(vendor_code)
-			supplier = Supplier(**values)
-			try:
-				supplier.full_clean()
-			except ValidationError as exc:
-				messages_by_field = getattr(exc, 'message_dict', {'row': exc.messages})
-				row_errors.extend(
-					f'Row {row_number}, {field}: {", ".join(errors)}'
-					for field, errors in messages_by_field.items()
-				)
-			if len(row_errors) == row_error_count:
+			first_rows.setdefault(vendor_code, row_number)
+			supplier, row_problems = check_row(Supplier, values, row_number, columns, 'vendor_code')
+			problems.extend(row_problems)
+			if not row_problems:
 				import_rows.append((supplier, link_names))
 
-		if row_errors:
-			raise ValidationError(row_errors)
+		if problems:
+			raise ImportProblems(problems)
 		if not import_rows:
-			raise ValidationError('The Suppliers sheet contains no supplier rows to import.')
+			raise ValidationError('The “Suppliers” sheet has a header row but no supplier rows below it. Add at least one row and upload again.')
 		with transaction.atomic():
 			for supplier, link_names in import_rows:
 				supplier.save()
 				save_links(supplier, link_names)
 		return len(import_rows)
-
-	@staticmethod
-	def _parse_boolean(value):
-		if value is None or value == '':
-			return None
-		if isinstance(value, bool):
-			return value
-		if isinstance(value, (int, float)) and value in (0, 1):
-			return bool(value)
-		key = str(value).strip().casefold()
-		if key in {'yes', 'y', 'true', '1', 'ok', 'passed', 'valid'}:
-			return True
-		if key in {'no', 'n', 'false', '0', 'not ok', 'failed', 'invalid'}:
-			return False
-		raise ValidationError(f'Use Yes/No or OK/Not OK, not {value!r}.')
-
-	@staticmethod
-	def _parse_status(value):
-		key = re.sub(r'[^a-z]', '', str(value).casefold())
-		return {'active': 'active', 'onhold': 'on_hold', 'inactive': 'inactive'}.get(key, value)

@@ -7,8 +7,11 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 from openpyxl.utils.exceptions import InvalidFileException
 
+from scportal.deletion import delete_selected
+from scportal.import_checks import read_error, upload_summary
 from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
 from scportal.search import apply_search
 
@@ -75,17 +78,19 @@ def _supplier_admin():
 @user_passes_test(lambda user: user.is_superuser)
 def supplier_upload(request):
 	form = SupplierUploadForm(request.POST or None, request.FILES or None)
+	problems = []
 	if request.method == 'POST' and form.is_valid():
 		try:
 			created_count = _supplier_admin()._import_workbook(form.cleaned_data['file'])
 		except (BadZipFile, InvalidFileException, OSError, ValueError) as exc:
-			form.add_error('file', f'Could not read this Excel workbook: {exc}')
+			form.add_error('file', read_error(exc).messages)
 		except ValidationError as exc:
-			form.add_error('file', exc.messages)
+			problems = getattr(exc, 'problems', [])
+			form.add_error('file', upload_summary(problems) if problems else exc.messages)
 		else:
 			messages.success(request, f'Imported {created_count} supplier(s).')
 			return redirect('suppliers:list')
-	return render(request, 'suppliers/upload.html', {'form': form})
+	return render(request, 'suppliers/upload.html', {'form': form, 'problems': problems})
 
 
 @user_passes_test(lambda user: user.is_superuser)
@@ -159,3 +164,10 @@ def supplier_edit(request, pk):
 		messages.success(request, f'Supplier {supplier.vendor_code} was updated.')
 		return redirect('suppliers:detail', supplier.pk)
 	return render(request, 'suppliers/form.html', {'form': form, 'supplier': supplier})
+
+
+@require_POST
+@user_passes_test(lambda user: user.is_superuser)
+def supplier_delete(request):
+	"""Permanently delete one or more suppliers (ticked on the list, or from a profile page)."""
+	return delete_selected(request, Supplier.objects.all(), 'supplier', 'suppliers:list')

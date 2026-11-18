@@ -9,6 +9,7 @@ urlpatterns = [
     path('', views.subcontractor_list, name='list'),
     path('add/', views.subcontractor_create, name='add'),
     path('upload/', views.subcontractor_upload, name='upload'),
+    path('delete/', views.subcontractor_delete, name='delete'),
     path('template.xlsx', views.subcontractor_template, name='template'),
     path('<int:pk>/', views.subcontractor_detail, name='detail'),
     path('<int:pk>/edit/', views.subcontractor_edit, name='edit'),

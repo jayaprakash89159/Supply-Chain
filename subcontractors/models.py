@@ -1,6 +1,8 @@
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from scportal.emails import MultipleEmailField, split_emails
+
 RATING_VALIDATORS = [MinValueValidator(0), MaxValueValidator(5)]
 
 
@@ -23,7 +25,7 @@ class DirectSubcontractor(models.Model):
 	contact_person = models.CharField(max_length=180, blank=True)
 	mobile_number = models.CharField(max_length=30, blank=True)
 	alternate_number = models.CharField(max_length=30, blank=True)
-	email = models.EmailField(blank=True)
+	email = MultipleEmailField(blank=True)
 	full_address = models.TextField(blank=True)
 	city = models.CharField(max_length=100, blank=True, db_index=True)
 	state = models.CharField(max_length=100, blank=True, db_index=True)
@@ -60,6 +62,10 @@ class DirectSubcontractor(models.Model):
 		verbose_name = 'labour & composite subcontractor'
 		verbose_name_plural = 'labour & composite subcontractors'
 		indexes = [models.Index(fields=['city', 'state'], name='direct_sub_city_state_idx')]
+
+	@property
+	def email_list(self):
+		return split_emails(self.email)
 
 	def __str__(self):
 		return f'{self.code} - {self.name}'
