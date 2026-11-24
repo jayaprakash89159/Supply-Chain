@@ -6,13 +6,17 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 from openpyxl.utils.exceptions import InvalidFileException
 
+from relationships.models import SupplierDirectSubcontractor
 from scportal.bulk_actions import delete_selected, set_status_selected
 from scportal.import_checks import read_error, upload_summary
 from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
+from audit.views import history_for
+from documents.views import profile_context as documents_profile_context
 from scportal import column_filters, vendor_tools
 from scportal.column_filters import Column
 from scportal.search import apply_search
@@ -139,7 +143,8 @@ def supplier_detail(request, pk):
 	supplier = get_object_or_404(
 		_active().prefetch_related(
 			'material_links__material__category', 'trade_links__trade', 'brand_links__brand', 'material_category_links__category',
-			'project_links__project', 'direct_subcontractor_links__subcontractor',
+			'project_links__project',
+			Prefetch('direct_subcontractor_links', queryset=SupplierDirectSubcontractor.objects.filter(subcontractor__archived_at__isnull=True).select_related('subcontractor')),
 		),
 		pk=pk,
 	)
@@ -148,6 +153,8 @@ def supplier_detail(request, pk):
 		'supplier': supplier, 'gstin_info': inspect_gstin(supplier.gstin),
 		'profile_percent': percent, 'profile_missing': missing,
 		'duplicates': vendor_tools.duplicates_of(supplier, _active()),
+		**documents_profile_context('supplier', supplier),
+		'history': history_for('supplier', supplier.pk),
 	})
 
 
@@ -207,7 +214,7 @@ class SupplierForm(GstinFormMixin, forms.ModelForm):
 
 	class Meta:
 		model = Supplier
-		exclude = ('archived_at',)
+		exclude = ('archived_at', 'archived_by')
 		labels = {field: heading for heading, field in FIELD_HEADERS.items()}
 		widgets = {
 			'full_address': forms.Textarea(attrs={'rows': 2}),
@@ -255,7 +262,7 @@ def supplier_edit(request, pk):
 @require_POST
 @user_passes_test(lambda user: user.is_superuser)
 def supplier_delete(request):
-	"""Permanently delete one or more suppliers (ticked on the list, or from a profile page)."""
+	"""Move one or more suppliers to the recycle bin (ticked on the list, or from a profile page)."""
 	return delete_selected(request, Supplier.objects.all(), 'supplier', 'suppliers:list')
 
 

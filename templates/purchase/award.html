@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% load humanize_inr %}
+{% block title %}Award – {{ quote.title }}{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">PURCHASE / AWARD</p><h1>Award and create POs</h1><p class="lede">{{ quote.title }}. Choose the vendor for each item — the lowest rate is pre-selected. One draft PO is made per vendor.</p></div><a class="button" href="{% url 'quotes:compare' quote.pk %}">Back to comparison</a></section>
+{% if errors %}<div class="form-errors panel">{% for error in errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+{% if active_orders %}<p class="message warning-note">POs already made from this request: {% for po in active_orders %}<a class="table-link" href="{% url 'purchase:detail' po.pk %}">{{ po.display_number }}</a> ({{ po.vendor_name }}, {{ po.get_status_display|lower }}){% if not forloop.last %}, {% endif %}{% endfor %}. Items on those POs can't be awarded again unless the PO is cancelled.</p>{% endif %}
+<form method="post" data-award-form>{% csrf_token %}
+<div class="table-wrap"><table class="award-table"><thead><tr><th>#</th><th>Item</th><th>Qty</th>{% for c in columns %}<th class="num">{{ c.recipient.vendor_name }}{% if c.rank %} <span class="cs-rank">{{ c.rank }}</span>{% endif %}</th>{% endfor %}<th>Don't order</th></tr></thead>
+<tbody>{% for choice in choices %}<tr{% if choice.ordered %} class="award-done"{% endif %}><td>{{ choice.item.position }}</td><td>{{ choice.item.description }}{% if choice.ordered %}<small class="profile-meta">already on a PO</small>{% endif %}</td><td class="nowrap">{{ choice.item.quantity.normalize }} {{ choice.item.unit }}</td>
+{% for c in columns %}<td class="award-cell">{% for option in choice.options %}{% if option.recipient.pk == c.recipient.pk %}<label class="award-option{% if option.lowest %} lowest{% endif %}"><input type="radio" name="award_{{ choice.item.pk }}" value="{{ option.recipient.pk }}"{% if choice.chosen == option.recipient.pk|stringformat:'s' %} checked{% endif %}{% if choice.ordered %} disabled{% endif %} data-lowest="{{ option.lowest|yesno:'1,' }}"><span>₹ {{ option.rate|inr }}<small>{{ option.gst.normalize }}% GST · ₹ {{ option.amount|inr }}</small></span></label>{% endif %}{% endfor %}</td>{% endfor %}
+<td class="award-cell"><label class="award-option"><input type="radio" name="award_{{ choice.item.pk }}" value=""{% if choice.chosen == '' or choice.ordered %} checked{% endif %}{% if choice.ordered %} disabled{% endif %}><span>—</span></label></td></tr>{% endfor %}</tbody></table></div>
+<div class="panel award-reason" data-reason-box><label for="reason">Reason for not choosing the lowest rate</label><textarea id="reason" name="reason" rows="2" placeholder="e.g. L1 cannot deliver before 20 Dec; L2 has better credit terms">{{ reason }}</textarea><small class="field-help">Required only when an item goes to a vendor who is not the lowest. Shown to approvers.</small></div>
+<div class="quote-actions"><button class="button primary" type="submit">Create draft POs</button></div>
+</form>
+{% endblock %}
+{% block scripts %}<script>
+(function () {
+  var form = document.querySelector('[data-award-form]');
+  var box = document.querySelector('[data-reason-box]');
+  function sync() {
+    var notLowest = Array.prototype.some.call(form.querySelectorAll('input[type=radio]:checked'), function (r) { return r.value && !r.dataset.lowest; });
+    box.classList.toggle('needed', notLowest);
+  }
+  form.addEventListener('change', sync);
+  sync();
+})();
+</script>{% endblock %}

@@ -50,11 +50,16 @@ def logout_view(request):
 
 @login_required
 def dashboard(request):
+	from documents.views import alert_counts
+
+	expired_documents, expiring_documents = alert_counts()
 	return render(request, 'accounts/dashboard.html', {
 		'supplier_count': apps.get_model('suppliers', 'Supplier').objects.filter(archived_at__isnull=True).count(),
 		'subcontractor_count': apps.get_model('subcontractors', 'DirectSubcontractor').objects.filter(archived_at__isnull=True).count(),
 		'material_count': apps.get_model('materials', 'Material').objects.filter(is_active=True).count(),
 		'project_count': apps.get_model('projects', 'Project').objects.count(),
+		'documents_expired': expired_documents,
+		'documents_expiring': expiring_documents,
 	})
 
 

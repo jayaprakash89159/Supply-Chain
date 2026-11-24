@@ -8,22 +8,26 @@ import smtplib
 
 from django.conf import settings
 from django.core.mail import EmailMessage, get_connection
+from django.urls import reverse
 from django.utils import timezone
 
 from scportal.emails import split_emails
 from subcontractors.models import DirectSubcontractor
 from suppliers.models import Supplier
 
-from .models import QuoteRecipient
+from .models import QuoteRecipient, new_token
 
 PLACEHOLDERS = {
 	'{vendor_name}': 'Vendor / firm name',
 	'{contact_person}': 'Contact person (or “Sir/Madam” when not recorded)',
 	'{vendor_code}': 'Vendor code',
 	'{city}': 'Vendor city',
-	'{requirement}': 'The requirement you type below',
+	'{requirement}': 'The item list and notes you type below',
+	'{quote_link}': 'The vendor’s own link to submit the quote online',
+	'{due_date}': 'Last date for quotes',
 	'{your_name}': 'Your name',
 }
+TEST_LINK = '[each vendor’s personal quote link appears here]'
 PLACEHOLDER_PATTERN = re.compile(r'\{[^{}\s]{1,40}\}')
 MAX_VENDORS = 100
 
@@ -38,7 +42,10 @@ We request your best quotation for the following requirement:
 
 Please include unit rates, GST, delivery period to site, payment terms and the validity of your offer.
 
-Kindly send your quotation by reply to this email.
+Submit your quotation online (no login needed) using your personal link:
+{quote_link}
+
+Last date for quotations: {due_date}. You may also reply to this email with your quotation.
 
 Regards,
 {your_name}
@@ -55,13 +62,26 @@ def sender_name(user):
 	return (user.get_full_name() or user.get_username()).strip()
 
 
-def fill(text, vendor, requirement, user):
+def requirement_text(items, notes):
+	"""The requirement as it appears in the email: numbered item list, then notes."""
+	lines = []
+	for number, item in enumerate(items, start=1):
+		quantity = format(item['quantity'].normalize(), 'f') if hasattr(item['quantity'], 'normalize') else item['quantity']
+		lines.append(f"{number}. {item['description']} – {quantity} {item['unit']}".rstrip())
+	if notes.strip():
+		lines.extend(['', notes.strip()] if lines else [notes.strip()])
+	return '\n'.join(lines)
+
+
+def fill(text, vendor, quote, user, link=''):
 	values = {
 		'{vendor_name}': vendor.name,
 		'{contact_person}': (vendor.contact_person or '').strip() or 'Sir/Madam',
 		'{vendor_code}': vendor.code_value,
 		'{city}': vendor.city or '',
-		'{requirement}': requirement.strip(),
+		'{requirement}': quote.requirement.strip(),
+		'{quote_link}': link,
+		'{due_date}': quote.due_date.strftime('%d %b %Y') if quote.due_date else 'as early as possible',
 		'{your_name}': sender_name(user),
 	}
 	for token, value in values.items():
@@ -95,10 +115,14 @@ def selected_vendors(selection):
 	return vendors
 
 
-def build_message(vendor, quote, user, to=None, attachment=None):
+def quote_link(base_url, token):
+	return f"{base_url.rstrip('/')}{reverse('quotes:respond', args=[token])}"
+
+
+def build_message(vendor, quote, user, to=None, attachment=None, link=TEST_LINK):
 	message = EmailMessage(
-		subject=fill(quote.subject, vendor, quote.requirement, user),
-		body=fill(quote.body, vendor, quote.requirement, user),
+		subject=fill(quote.subject, vendor, quote, user, link),
+		body=fill(quote.body, vendor, quote, user, link),
 		from_email=settings.DEFAULT_FROM_EMAIL,
 		to=to or vendor.email_addresses,
 		reply_to=[quote.reply_to] if quote.reply_to else None,
@@ -137,7 +161,7 @@ def explain_mail_error(exc):
 	return f'The mail server reported an error: {text}'
 
 
-def send_all(quote, vendors, user):
+def send_all(quote, vendors, user, base_url):
 	"""Send one email per vendor and record the outcome for each. Returns the QuoteRecipient rows."""
 	attachment = read_attachment(quote)
 	results = []
@@ -150,7 +174,7 @@ def send_all(quote, vendors, user):
 	for vendor in vendors:
 		recipient = QuoteRecipient(
 			request=quote, kind=vendor.kind, vendor_id=vendor.pk, vendor_code=vendor.code_value,
-			vendor_name=vendor.name, emails='; '.join(vendor.email_addresses),
+			vendor_name=vendor.name, emails='; '.join(vendor.email_addresses), token=new_token(),
 		)
 		if not vendor.email_addresses:
 			recipient.status = QuoteRecipient.Status.SKIPPED
@@ -158,7 +182,7 @@ def send_all(quote, vendors, user):
 			recipient.status, recipient.error = QuoteRecipient.Status.FAILED, open_error
 		else:
 			try:
-				message = build_message(vendor, quote, user, attachment=attachment)
+				message = build_message(vendor, quote, user, attachment=attachment, link=quote_link(base_url, recipient.token))
 				message.connection = connection
 				message.send()
 				recipient.status, recipient.sent_at = QuoteRecipient.Status.SENT, timezone.now()
@@ -173,3 +197,8 @@ def send_all(quote, vendors, user):
 
 def email_configured():
 	return bool(getattr(settings, 'EMAIL_HOST', '')) or settings.EMAIL_BACKEND != 'django.core.mail.backends.smtp.EmailBackend'
+
+
+def public_base_url(request):
+	"""Address vendors use to open their quote link: PORTAL_PUBLIC_URL when set, else this portal's own address."""
+	return settings.PORTAL_PUBLIC_URL or request.build_absolute_uri('/')

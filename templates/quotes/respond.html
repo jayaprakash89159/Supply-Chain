@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Quotation – {{ quote_request.title }}{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">{% if staff %}ENTER QUOTE / {{ recipient.vendor_code }}{% else %}VISHWA INFRASTRUCTURES & SERVICES PVT. LTD. · REQUEST FOR QUOTATION{% endif %}</p><h1>{% if staff %}Quote from {{ recipient.vendor_name }}{% else %}Your quotation{% endif %}</h1><p class="lede">{% if staff %}Type in the quote {{ recipient.vendor_name }} sent by email, WhatsApp or on paper.{% else %}For <strong>{{ recipient.vendor_name }}</strong>{% if quote_request.due_date %} · last date <strong>{{ quote_request.due_date|date:'d M Y' }}</strong>{% endif %}. {% if existing %}You already submitted on {{ existing.updated_at|date:'d M Y, H:i' }}; you can revise it below.{% else %}No login needed.{% endif %}{% endif %}</p></div>{% if staff %}<a class="button" href="{% url 'quotes:detail' quote_request.pk %}">Back to request</a>{% endif %}</section>
+{% if closed %}<div class="panel"><h2>Quotations are closed</h2><p>The last date for this request was {{ quote_request.due_date|date:'d M Y' }}. {% if existing %}Your quotation from {{ existing.updated_at|date:'d M Y' }} was received.{% else %}No quotation was received from you.{% endif %} For questions, reply to the email you received.</p></div>
+{% else %}
+<section class="panel rfq-summary"><h2>Requirement</h2><pre class="preview-body">{{ quote_request.requirement }}</pre>{% if quote_request.attachment and staff %}<p class="field-help">Attachment sent with the request: {{ quote_request.attachment.name|cut:'quotes/' }}</p>{% endif %}</section>
+<form class="panel respond-form" method="post" enctype="multipart/form-data">{% csrf_token %}
+{% if line_errors or form.errors %}<div class="form-errors">{% for error in line_errors %}<p>{{ error }}</p>{% endfor %}{% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}{% if form.errors and not line_errors %}<p>Please correct the fields marked below.</p>{% endif %}</div>{% endif %}
+{% if has_items %}<h2>Rates</h2><p class="field-help">Unit rate <strong>excluding GST</strong>. Leave a rate empty for any item you cannot supply.</p><div class="table-wrap"><table class="rate-table"><thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit rate (₹)</th><th>GST %</th><th>Amount (₹)</th><th>Remark (brand, make…)</th></tr></thead><tbody>{% for row in rows %}<tr data-rate-row data-qty="{{ row.item.quantity }}"><td>{{ row.item.position }}</td><td>{{ row.item.description }}</td><td class="qty">{{ row.item.quantity.normalize }} {{ row.item.unit }}</td><td><input type="text" inputmode="decimal" name="rate_{{ row.item.pk }}" value="{{ row.rate }}" aria-label="Unit rate for {{ row.item.description }}" data-rate></td><td><select name="gst_{{ row.item.pk }}" aria-label="GST for {{ row.item.description }}" data-gst>{% for g in gst_choices %}<option value="{{ g }}"{% if row.gst == g %} selected{% endif %}>{{ g }}%</option>{% endfor %}</select></td><td class="amount" data-amount>—</td><td><input type="text" name="remark_{{ row.item.pk }}" value="{{ row.remark }}" maxlength="200" aria-label="Remark for {{ row.item.description }}"></td></tr>{% endfor %}</tbody><tfoot><tr><td></td><td colspan="4">Total before GST</td><td class="amount" data-total>—</td><td></td></tr><tr><td></td><td colspan="4">Total including GST</td><td class="amount" data-total-gst>—</td><td></td></tr></tfoot></table></div>{% endif %}
+<h2>{% if has_items %}Other terms{% else %}Your offer{% endif %}</h2><div class="respond-fields">{% for field in form %}<div><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small class="field-help">{{ field.help_text }}</small>{% endif %}{% for error in field.errors %}<small class="error">{{ error }}</small>{% endfor %}</div>{% endfor %}</div>
+<div class="quote-actions"><button class="button primary" type="submit">{% if staff %}Save quote{% elif existing %}Submit revised quotation{% else %}Submit quotation{% endif %}</button></div>
+</form>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script>
+(function () {
+  var rows = document.querySelectorAll('[data-rate-row]');
+  if (!rows.length) return;
+  var fmt = function (n) { return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  var num = function (text) { var n = parseFloat(String(text).replace(/,/g, '')); return isNaN(n) ? null : n; };
+  function total() {
+    var basic = 0, withGst = 0;
+    rows.forEach(function (row) {
+      var rate = num(row.querySelector('[data-rate]').value);
+      var cell = row.querySelector('[data-amount]');
+      if (rate === null) { cell.textContent = '—'; return; }
+      var amount = rate * num(row.dataset.qty);
+      cell.textContent = fmt(amount);
+      basic += amount;
+      withGst += amount * (1 + num(row.querySelector('[data-gst]').value) / 100);
+    });
+    document.querySelector('[data-total]').textContent = fmt(basic);
+    document.querySelector('[data-total-gst]').textContent = fmt(withGst);
+  }
+  rows.forEach(function (row) { row.addEventListener('input', total); row.addEventListener('change', total); });
+  total();
+})();
+</script>{% endblock %}

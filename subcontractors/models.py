@@ -1,4 +1,5 @@
 from django.core.validators import MaxValueValidator, MinValueValidator
+from django.conf import settings
 from django.db import models
 
 from scportal.emails import MultipleEmailField, split_emails
@@ -54,6 +55,7 @@ class DirectSubcontractor(models.Model):
 	status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True)
 	remarks = models.TextField(blank=True)
 	archived_at = models.DateTimeField(null=True, blank=True)
+	archived_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 

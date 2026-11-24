@@ -38,6 +38,9 @@ INSTALLED_APPS = [
     'projects',
     'relationships',
     'quotes',
+    'documents',
+    'audit',
+    'purchase',
 ]
 
 MIDDLEWARE = [
@@ -49,6 +52,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'accounts.middleware.ForcePasswordChangeMiddleware',
+    'audit.recorder.CurrentUserMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -66,6 +70,8 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'scportal.context_processors.gst',
+                'documents.context_processors.document_alerts',
+                'purchase.context_processors.purchase_alerts',
             ],
         },
     },
@@ -132,3 +138,7 @@ EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '30'))
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL') or EMAIL_HOST_USER or 'webmaster@localhost'
 FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+
+# Address vendors outside the office use to open their quote links, e.g. https://portal.vishwainfra.in
+# Empty = this portal's own address, which only works inside the office network.
+PORTAL_PUBLIC_URL = os.environ.get('PORTAL_PUBLIC_URL', '').strip()

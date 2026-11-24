@@ -4,7 +4,7 @@
 // - Buttons with data-confirm, and forms with data-confirm-delete, ask before they are sent.
 (function () {
   'use strict';
-  var IRREVERSIBLE = '\n\nThis permanently deletes the data and cannot be undone.';
+  var IRREVERSIBLE = '\n\nThey move to the Recycle bin, where an administrator can restore them.';
   var form = document.getElementById('bulk-actions');
 
   if (form) {
@@ -47,7 +47,8 @@
     form.addEventListener('submit', function (event) {
       var button = event.submitter;
       var question = button && button.getAttribute('data-confirm');
-      if (question && !window.confirm(question.replace('{n}', ticked()) + IRREVERSIBLE)) {
+      var note = button.hasAttribute('data-confirm-final') ? '' : IRREVERSIBLE;
+      if (question && !window.confirm(question.replace('{n}', ticked()) + note)) {
         event.preventDefault();
       }
     });

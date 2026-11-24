@@ -154,7 +154,12 @@ def _model_messages(model, exc, values):
 				target = next((field.name for field in model._meta.fields if field.name in name), '__all__')
 				message = f'The value is outside the allowed range. {RATING_HINT}' if target.endswith('_rating') else None
 			elif error.code == 'unique':
-				message = f'{_show(values.get(field_name, ""))} is already in the portal. Each vendor code can be uploaded only once — remove this row, or edit the existing record instead.'
+				in_bin = model.objects.filter(**{field_name: values.get(field_name)}, archived_at__isnull=False).exists()
+				message = (
+					f'{_show(values.get(field_name, ""))} is in the Recycle bin (it was deleted). Restore it from Recycle bin, or delete it permanently there before uploading it again.'
+					if in_bin else
+					f'{_show(values.get(field_name, ""))} is already in the portal. Each vendor code can be uploaded only once — remove this row, or edit the existing record instead.'
+				)
 			elif error.code == 'blank':
 				message = 'This cell is empty, but the column is required.'
 			elif error.code == 'max_length':

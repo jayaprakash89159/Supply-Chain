@@ -10,6 +10,67 @@
   var select = form.querySelector('[data-preview-select]');
   var yourName = JSON.parse(document.getElementById('quote-your-name').textContent);
   var lastFocused = body;
+  var due = form.querySelector('[name="due_date"]');
+  var itemBody = form.querySelector('[data-item-rows]');
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function itemRows() { return Array.prototype.slice.call(itemBody.querySelectorAll('[data-item-row]')); }
+
+  function requirementText() {
+    var lines = [];
+    itemRows().forEach(function (row) {
+      var d = row.querySelector('[name="item_description"]').value.trim();
+      var q = row.querySelector('[name="item_quantity"]').value.trim();
+      var u = row.querySelector('[name="item_unit"]').value.trim();
+      if (d || q) lines.push((lines.length + 1) + '. ' + d + ' – ' + (q + ' ' + u).trim());
+    });
+    var notes = requirement.value.trim();
+    if (notes) { if (lines.length) lines.push(''); lines.push(notes); }
+    return lines.join('\n');
+  }
+
+  function dueText() {
+    if (!due || !due.value) return 'as early as possible';
+    var parts = due.value.split('-');
+    return parts[2] + ' ' + MONTHS[Number(parts[1]) - 1] + ' ' + parts[0];
+  }
+
+  function renumber() {
+    itemRows().forEach(function (row, index) { row.querySelector('.item-no').textContent = index + 1; });
+  }
+
+  function addRow(values) {
+    var template = itemRows()[0];
+    var row = template.cloneNode(true);
+    row.querySelectorAll('input').forEach(function (input, index) { input.value = (values && values[index]) || ''; });
+    itemBody.appendChild(row);
+    wireRow(row);
+    renumber();
+    return row;
+  }
+
+  function wireRow(row) {
+    row.querySelectorAll('input').forEach(function (input) { input.addEventListener('input', preview); });
+    row.querySelector('[data-remove-item]').addEventListener('click', function () {
+      if (itemRows().length > 1) row.remove(); else row.querySelectorAll('input').forEach(function (input) { input.value = ''; });
+      renumber();
+      preview();
+    });
+    // Rows copied from Excel arrive as tab-separated lines: description, quantity, unit.
+    row.querySelector('[name="item_description"]').addEventListener('paste', function (event) {
+      var text = (event.clipboardData || window.clipboardData).getData('text');
+      if (text.indexOf('\t') === -1 && text.indexOf('\n') === -1) return;
+      event.preventDefault();
+      var lines = text.replace(/\r/g, '').split('\n').filter(function (line) { return line.trim(); });
+      var target = row;
+      lines.forEach(function (line, index) {
+        var cells = line.split('\t').map(function (cell) { return cell.trim(); });
+        if (index > 0) target = addRow();
+        target.querySelectorAll('input').forEach(function (input, i) { input.value = cells[i] || ''; });
+      });
+      preview();
+    });
+  }
 
   function fill(text, box) {
     var values = {
@@ -17,7 +78,9 @@
       '{contact_person}': box.dataset.contact || 'Sir/Madam',
       '{vendor_code}': box.dataset.code,
       '{city}': box.dataset.city,
-      '{requirement}': requirement.value.trim(),
+      '{requirement}': requirementText(),
+      '{quote_link}': '[' + box.dataset.name + '’s personal quote link]',
+      '{due_date}': dueText(),
       '{your_name}': yourName
     };
     Object.keys(values).forEach(function (token) { text = text.split(token).join(values[token]); });
@@ -48,6 +111,10 @@
     field.addEventListener('focus', function () { if (field !== requirement) lastFocused = field; });
   });
   select.addEventListener('change', preview);
+  if (due) due.addEventListener('input', preview);
+  itemRows().forEach(wireRow);
+  form.querySelector('[data-add-item]').addEventListener('click', function () { addRow().querySelector('input').focus(); });
+  renumber();
   vendors.forEach(function (box) { box.addEventListener('change', counts); });
 
   form.querySelectorAll('[data-insert]').forEach(function (button) {

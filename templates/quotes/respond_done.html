@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block title %}Quotation received{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">VISHWA INFRASTRUCTURES & SERVICES PVT. LTD.</p><h1>Thank you — quotation {% if revised %}revised{% else %}received{% endif %}</h1><p class="lede">We have your quotation for <strong>{{ quote_request.title }}</strong> from {{ recipient.vendor_name }}.{% if quote_request.is_open %} You can open the same link again to revise it{% if quote_request.due_date %} until {{ quote_request.due_date|date:'d M Y' }}{% endif %}.{% endif %}</p></div></section>
+{% endblock %}

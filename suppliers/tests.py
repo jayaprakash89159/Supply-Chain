@@ -241,7 +241,8 @@ class AdminDeleteTests(TestCase):
 		self.client.force_login(self.admin)
 		response = self.client.post('/suppliers/delete/', {'ids': [self.s1.pk, self.s2.pk], 'next': '/suppliers/?q=x'})
 		self.assertRedirects(response, '/suppliers/?q=x', fetch_redirect_response=False)
-		self.assertEqual(list(Supplier.objects.values_list('vendor_code', flat=True)), ['SUP-003'])
+		self.assertEqual(list(Supplier.objects.filter(archived_at__isnull=True).values_list('vendor_code', flat=True)), ['SUP-003'])
+		self.assertEqual(set(Supplier.objects.filter(archived_by=self.admin).values_list('vendor_code', flat=True)), {'SUP-001', 'SUP-002'})
 
 	def test_everyone_can_select_but_only_admin_can_delete(self):
 		self.client.force_login(self.admin)
@@ -275,8 +276,11 @@ class AdminDeleteTests(TestCase):
 		self.client.force_login(self.admin)
 		response = self.client.post('/subcontractors/delete/', {'ids': [self.sub1.pk, self.sub2.pk]})
 		self.assertRedirects(response, '/subcontractors/', fetch_redirect_response=False)
-		self.assertEqual(self.Sub.objects.count(), 0)
+		self.client.get('/subcontractors/')  # shows (and clears) the "moved to the recycle bin" message
+		self.assertEqual(self.Sub.objects.filter(archived_at__isnull=True).count(), 0)
 		self.assertTrue(Supplier.objects.filter(pk=self.s3.pk).exists())
+		# The supplier's profile no longer lists the subcontractor that is now in the recycle bin.
+		self.assertNotContains(self.client.get(f'/suppliers/{self.s3.pk}/'), 'Gang One')
 
 	def test_external_next_url_is_ignored(self):
 		self.client.force_login(self.admin)

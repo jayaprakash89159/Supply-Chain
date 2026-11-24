@@ -30,5 +30,9 @@
     <div class="metric"><strong>{{ material_count }}</strong><span>Materials</span></div>
     <div class="metric"><strong>{{ project_count }}</strong><span>Projects</span></div>
   </div>
+  <div class="metric-grid metric-grid-2 doc-metrics">
+    <a class="metric{% if documents_expired %} metric-alert{% endif %}" href="{% url 'documents:expiring' %}?within=expired"><strong>{{ documents_expired }}</strong><span>Vendor documents expired</span><small>Licences, insurance, certificates</small></a>
+    <a class="metric{% if documents_expiring %} metric-warn{% endif %}" href="{% url 'documents:expiring' %}"><strong>{{ documents_expiring }}</strong><span>Expiring within 30 days</span><small>Renew before they lapse</small></a>
+  </div>
 </section>
 {% endblock %}

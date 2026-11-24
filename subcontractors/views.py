@@ -4,6 +4,7 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -12,6 +13,8 @@ from scportal.bulk_actions import delete_selected, set_status_selected
 from scportal.excel import READ_ERRORS
 from scportal.import_checks import read_error, upload_summary
 from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
+from audit.views import history_for
+from documents.views import profile_context as documents_profile_context
 from scportal import column_filters, vendor_tools
 from scportal.column_filters import Column
 from scportal.search import apply_search
@@ -44,7 +47,7 @@ class SubcontractorForm(GstinFormMixin, forms.ModelForm):
 
 	class Meta:
 		model = DirectSubcontractor
-		exclude = ('archived_at',)
+		exclude = ('archived_at', 'archived_by')
 		labels = {field: heading for heading, field in FIELD_HEADERS.items()}
 		widgets = {
 			'scope_of_work': forms.Textarea(attrs={'rows': 2}),
@@ -175,13 +178,18 @@ def subcontractor_duplicates(request):
 @login_required
 def subcontractor_detail(request, pk):
 	subcontractor = get_object_or_404(
-		_active().prefetch_related('trade_links__trade', 'project_links__project', 'supplier_links__supplier'), pk=pk,
+		_active().prefetch_related(
+			'trade_links__trade', 'project_links__project',
+			Prefetch('supplier_links', queryset=SupplierDirectSubcontractor.objects.filter(supplier__archived_at__isnull=True).select_related('supplier')),
+		), pk=pk,
 	)
 	percent, missing = vendor_tools.completeness(subcontractor, KEY_FIELDS)
 	return render(request, 'subcontractors/detail.html', {
 		'subcontractor': subcontractor, 'gstin_info': inspect_gstin(subcontractor.gstin),
 		'profile_percent': percent, 'profile_missing': missing,
 		'duplicates': vendor_tools.duplicates_of(subcontractor, _active()),
+		**documents_profile_context('subcontractor', subcontractor),
+		'history': history_for('subcontractor', subcontractor.pk),
 	})
 
 
@@ -238,14 +246,8 @@ def subcontractor_template(request):
 @require_POST
 @admin_required
 def subcontractor_delete(request):
-	"""Permanently delete one or more subcontractors (ticked on the list, or from a profile page)."""
-	def unlink_suppliers(records):
-		# Supplier links protect subcontractors from deletion, so they are removed first.
-		SupplierDirectSubcontractor.objects.filter(subcontractor__in=records).delete()
-
-	return delete_selected(
-		request, DirectSubcontractor.objects.all(), 'subcontractor', 'subcontractors:list', before_delete=unlink_suppliers,
-	)
+	"""Move one or more subcontractors to the recycle bin (ticked on the list, or from a profile page)."""
+	return delete_selected(request, DirectSubcontractor.objects.all(), 'subcontractor', 'subcontractors:list')
 
 
 @require_POST

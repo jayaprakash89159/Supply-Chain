@@ -6,13 +6,13 @@ It does **not** put the portal on the internet.
 | Item | Value on this PC |
 |---|---|
 | Host PC name | `JayaPrakash` |
-| Host PC address (Wi-Fi) | `192.168.0.198` |
+| Host PC address (Wi-Fi) | `192.168.0.188` |
 | Office Wi-Fi | `Vishwa Second Floor 5G 2` |
-| Portal link for colleagues | **http://192.168.0.198/** (or **http://jayaprakash/**) |
+| Portal link for colleagues | **http://192.168.0.188/** (or **http://jayaprakash/**) |
 | Portal link on this PC | http://localhost/ |
 | Project folder | `C:\Users\jayap\SupplyChainPortal` |
 
-> The address `192.168.0.198` is given out by the office router and can change. Step 2 prevents that.
+> The address `192.168.0.188` is given out by the office router and can change. Step 2 prevents that.
 
 ---
 
@@ -37,17 +37,17 @@ Unless a step says *as administrator*, a normal PowerShell window is fine.
    ipconfig
    ```
 2. Under **Wireless LAN adapter Wi-Fi** (or **Ethernet adapter Ethernet** if you use a cable), note the **IPv4 Address**.
-   Today it is `192.168.0.198`.
+   Today it is `192.168.0.188`.
 3. Ignore addresses under *vEthernet (WSL)*, *VPN* or *Bluetooth* — those are not the office network.
 
-If your address is different from `192.168.0.198`, use your address everywhere this guide says `192.168.0.198`.
+If your address is different from `192.168.0.188`, use your address everywhere this guide says `192.168.0.188`.
 
 ## Step 2 — Keep the address from changing (router)
 
 Ask whoever manages the office router (IT / network admin) to create a **DHCP reservation** for this PC:
 
 - **Device:** `JayaPrakash`
-- **IP address:** `192.168.0.198`
+- **IP address:** `192.168.0.188`
 - **MAC address:** run the command below and send them the *Physical Address* of the Wi-Fi adapter:
   ```powershell
   Get-NetAdapter -Name "Wi-Fi" | Select-Object Name, MacAddress
@@ -63,8 +63,8 @@ Make sure these lines look like this (they are already set on this PC):
 
 ```ini
 DJANGO_DEBUG=0
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.0.198,jayaprakash
-DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost,http://127.0.0.1,http://192.168.0.198,http://jayaprakash
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.0.188,jayaprakash
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost,http://127.0.0.1,http://192.168.0.188,http://jayaprakash
 WEB_BIND=0.0.0.0
 WEB_PORT=80
 ```
@@ -93,7 +93,7 @@ Do **not** share this file — it also contains the database password and the se
    docker compose ps
    ```
    The `web` line should show **healthy** and `0.0.0.0:80->8000/tcp`.
-3. On **this PC**, open http://192.168.0.198/ — the sign-in page should appear.
+3. On **this PC**, open http://192.168.0.188/ — the sign-in page should appear.
 
 If `docker compose up -d` says *ports are not available … port 80*, wait 10 seconds and run it again (the old container was still releasing the port).
 
@@ -113,7 +113,7 @@ Windows currently treats the office Wi-Fi as a **Public** network, which blocks 
    ```
    Network 'Vishwa Second Floor 5G 2' on Wi-Fi set to Private.
    Firewall rule 'Supply Chain Portal (HTTP 80)' added.
-   Done. From another computer on this network open:  http://192.168.0.198/
+   Done. From another computer on this network open:  http://192.168.0.188/
    ```
 
 ### Option B — Do it by hand in Windows Settings
@@ -129,7 +129,7 @@ Windows currently treats the office Wi-Fi as a **Public** network, which blocks 
 ## Step 6 — Test from another computer
 
 1. On a colleague's computer connected to the same office network, open a browser.
-2. Go to **http://192.168.0.198/**
+2. Go to **http://192.168.0.188/**
 3. The VISHWA sign-in page should appear. Sign in with an account created on the **Users** page.
 
 If `http://jayaprakash/` does not work but the IP address does, that is normal on some networks — use the IP address.
@@ -161,7 +161,7 @@ The portal only works while this PC is on. Do these once:
 
 If `ipconfig` shows a new address (for example `192.168.0.150`):
 
-1. Edit `.env` and replace `192.168.0.198` with the new address in **both** `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS`.
+1. Edit `.env` and replace `192.168.0.188` with the new address in **both** `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS`.
 2. Apply it:
    ```powershell
    cd C:\Users\jayap\SupplyChainPortal
@@ -188,7 +188,7 @@ docker compose ps                                   # is the portal running and 
 docker compose logs web --tail 50                   # recent portal log messages
 Get-NetConnectionProfile                            # network should be Private
 Get-NetFirewallRule -DisplayName 'Supply Chain Portal (HTTP 80)'   # rule exists?
-Invoke-WebRequest http://192.168.0.198/health/ -UseBasicParsing   # should return {"status": "ok"}
+Invoke-WebRequest http://192.168.0.188/health/ -UseBasicParsing   # should return {"status": "ok"}
 ```
 
 ## Switching network access off again
