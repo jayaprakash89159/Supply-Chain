@@ -9,3 +9,9 @@ __pycache__
 staticfiles
 media
 .pytest_cache
+
+# Never bake secrets or data into the image
+_revert
+backups
+*.dump
+*.bak

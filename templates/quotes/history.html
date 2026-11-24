@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block title %}Quote requests | Supply Chain Portal{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">PURCHASE / REQUESTS FOR QUOTATION</p><h1>Quote requests</h1><p class="lede">{% if request.user.is_superuser %}Every quote request sent from the portal.{% else %}Quote requests you have sent.{% endif %} To send a new one, tick vendors in a directory or search result and click <strong>Request quotes</strong>.</p></div></section>
+<div class="table-wrap"><table><thead><tr><th>Sent</th><th>Subject</th><th>By</th><th>Vendors</th><th>Result</th></tr></thead><tbody>{% for quote in page %}{% with c=quote.counts %}<tr><td>{{ quote.created_at|date:'d M Y, H:i' }}</td><td><a class="table-link" href="{% url 'quotes:detail' quote.pk %}">{{ quote.subject }}</a>{% if quote.attachment %}<small class="profile-meta">with attachment</small>{% endif %}</td><td>{{ quote.sent_by.get_username|default:'—' }}</td><td>{{ quote.recipients.all|length }}</td><td><span class="status active">{{ c.sent }} sent</span>{% if c.failed %} <span class="status inactive">{{ c.failed }} failed</span>{% endif %}{% if c.skipped %} <span class="status on_hold">{{ c.skipped }} no email</span>{% endif %}</td></tr>{% endwith %}{% empty %}<tr><td colspan="5" class="empty-state">No quote requests yet.</td></tr>{% endfor %}</tbody></table></div>
+{% include 'includes/pagination.html' %}
+{% endblock %}

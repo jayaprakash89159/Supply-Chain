@@ -8,10 +8,12 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from relationships.models import SupplierDirectSubcontractor
-from scportal.deletion import delete_selected
+from scportal.bulk_actions import delete_selected, set_status_selected
 from scportal.excel import READ_ERRORS
 from scportal.import_checks import read_error, upload_summary
 from scportal.gstin import GstinFormMixin, inspect as inspect_gstin
+from scportal import column_filters, vendor_tools
+from scportal.column_filters import Column
 from scportal.search import apply_search
 from suppliers.links import join_names, split_names
 
@@ -75,9 +77,23 @@ def _active():
 	return DirectSubcontractor.objects.filter(archived_at__isnull=True)
 
 
-@login_required
-def subcontractor_list(request):
-	records = _active().prefetch_related('trade_links__trade')
+KEY_FIELDS = [('service_type', 'Service type'), *vendor_tools.KEY_FIELDS]
+
+COLUMNS = [
+	Column('vendor', 'Vendor', ('name',), sort='name'),
+	Column('trade', 'Trade / service', ('trade_links__trade__name', 'service_type')),
+	Column('contact', 'Contact', ('contact_person',), sort='contact_person'),
+	Column('labour', 'Labour', ('labour_strength',), kind='number', sort='labour_strength'),
+	Column('location', 'Location', ('city',), sort='city'),
+	Column('rating', 'Rating', ('overall_rating',), kind='number', sort='overall_rating'),
+	Column('profile', 'Profile', kind='profile'),
+	Column('status', 'Status', ('status',), kind='choice', sort='status', choices=dict(DirectSubcontractor.Status.choices)),
+]
+
+
+def _filtered(request):
+	"""Subcontractors matching the list page's search and filters (shared by the list and the Excel export)."""
+	records = _active()
 	search = request.GET.get('q', '').strip()
 	records = apply_search(records, search, SEARCH_FIELDS, PHONE_FIELDS)
 	for field in ('status', 'service_type', 'city'):
@@ -87,15 +103,72 @@ def subcontractor_list(request):
 	trade = request.GET.get('trade', '').strip()
 	if trade:
 		records = records.filter(trade_links__trade__name=trade).distinct()
-	page = Paginator(records, 25).get_page(request.GET.get('page'))
+	missing = request.GET.get('missing', '').strip()
+	if missing == 'any' or missing in dict(KEY_FIELDS):
+		records = records.filter(vendor_tools.missing_filter(KEY_FIELDS, missing))
+	if request.GET.get('duplicates') == '1':
+		records = records.filter(pk__in=vendor_tools.duplicate_ids(_active()))
+	return column_filters.apply(records, request, COLUMNS, KEY_FIELDS), search, records
+
+
+@login_required
+def subcontractor_list(request):
+	records, search, base = _filtered(request)
+	page = Paginator(records.prefetch_related('trade_links__trade'), 25).get_page(request.GET.get('page'))
+	vendor_tools.annotate_completeness(page.object_list, KEY_FIELDS)
+	query = request.GET.copy()
+	query.pop('page', None)
+	headings, menus = column_filters.headings(base, request, COLUMNS, KEY_FIELDS)
+	clear_columns = None
+	if column_filters.any_active(request, COLUMNS) or request.GET.get('sort'):
+		clear = query.copy()
+		for key in [key for key in clear if key.startswith('f_') or key == 'sort']:
+			clear.pop(key)
+		clear_columns = '?' + clear.urlencode()
 	active = _active()
 	return render(request, 'subcontractors/list.html', {
+		'headings': headings, 'column_menus': menus, 'clear_columns': clear_columns,
 		'page': page,
 		'search': search,
+		'query_string': query.urlencode(),
 		'statuses': DirectSubcontractor.Status.choices,
+		'missing_choices': KEY_FIELDS,
 		'service_types': active.exclude(service_type='').values_list('service_type', flat=True).distinct().order_by('service_type'),
 		'cities': active.exclude(city='').values_list('city', flat=True).distinct().order_by('city'),
 		'trades': active.filter(trade_links__isnull=False).values_list('trade_links__trade__name', flat=True).distinct().order_by('trade_links__trade__name'),
+	})
+
+
+EXPORT_PREFETCH = ('trade_links__trade', 'project_links__project')
+
+
+def export_row(sub):
+	"""One subcontractor as {upload-template heading: value} for the Excel export."""
+	values = {heading: getattr(sub, field) for heading, field in FIELD_HEADERS.items()}
+	values['Status'] = sub.get_status_display()
+	values['GSTIN Check'] = vendor_tools.check_value(sub.gstin_check)
+	values['IFSC Check'] = vendor_tools.check_value(sub.ifsc_check)
+	values['Trade'] = join_names(link.trade.name for link in sub.trade_links.all())
+	values['Project(s) Worked On'] = join_names(link.project.name for link in sub.project_links.all())
+	return values
+
+
+@login_required
+def subcontractor_export(request):
+	records, _, _ = _filtered(request)
+
+	return vendor_tools.export_response(
+		records.prefetch_related(*EXPORT_PREFETCH), UPLOAD_COLUMNS, export_row,
+		'labour_composite_subcontractors', 'Labour & Composite',
+	)
+
+
+@login_required
+def subcontractor_duplicates(request):
+	return render(request, 'includes/duplicates.html', {
+		'groups': vendor_tools.duplicate_groups(_active()),
+		'kind': 'Labour & Composite subcontractors', 'list_url': 'subcontractors:list',
+		'detail_url': 'subcontractors:detail', 'code_field': 'code',
 	})
 
 
@@ -104,7 +177,18 @@ def subcontractor_detail(request, pk):
 	subcontractor = get_object_or_404(
 		_active().prefetch_related('trade_links__trade', 'project_links__project', 'supplier_links__supplier'), pk=pk,
 	)
-	return render(request, 'subcontractors/detail.html', {'subcontractor': subcontractor, 'gstin_info': inspect_gstin(subcontractor.gstin)})
+	percent, missing = vendor_tools.completeness(subcontractor, KEY_FIELDS)
+	return render(request, 'subcontractors/detail.html', {
+		'subcontractor': subcontractor, 'gstin_info': inspect_gstin(subcontractor.gstin),
+		'profile_percent': percent, 'profile_missing': missing,
+		'duplicates': vendor_tools.duplicates_of(subcontractor, _active()),
+	})
+
+
+@login_required
+def subcontractor_vcard(request, pk):
+	subcontractor = get_object_or_404(_active(), pk=pk)
+	return vendor_tools.vcard_response(subcontractor, subcontractor.code, 'Labour & Composite subcontractor')
 
 
 @admin_required
@@ -161,4 +245,13 @@ def subcontractor_delete(request):
 
 	return delete_selected(
 		request, DirectSubcontractor.objects.all(), 'subcontractor', 'subcontractors:list', before_delete=unlink_suppliers,
+	)
+
+
+@require_POST
+@admin_required
+def subcontractor_set_status(request):
+	"""Set the status of several subcontractors at once (ticked on the list)."""
+	return set_status_selected(
+		request, DirectSubcontractor.objects.all(), 'subcontractor', 'subcontractors:list', DirectSubcontractor.Status.choices,
 	)
